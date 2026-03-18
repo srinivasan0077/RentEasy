@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
-import { Download, Receipt, FileText } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Download, Receipt, FileText, Upload, X, Pen } from 'lucide-react';
 import { getTenants, getProperties, getPayments, addReceipt, getReceipts } from '../store';
 import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
 import jsPDF from 'jspdf';
+
+const SIGNATURE_STORAGE_KEY = 'renteasy_landlord_signature';
 
 export default function Receipts({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
@@ -22,6 +24,43 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [signatureImg, setSignatureImg] = useState(null);
+  const sigFileRef = useRef(null);
+
+  // Load saved signature from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem(SIGNATURE_STORAGE_KEY);
+    if (saved) setSignatureImg(saved);
+  }, []);
+
+  const handleSignatureUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      showToast('Please upload an image file (PNG, JPG)', 'error');
+      return;
+    }
+    if (file.size > 500 * 1024) {
+      showToast('Signature image must be under 500KB', 'error');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const dataUrl = evt.target.result;
+      setSignatureImg(dataUrl);
+      localStorage.setItem(SIGNATURE_STORAGE_KEY, dataUrl);
+      showToast('Signature uploaded! It will be embedded in all receipts ✍️');
+    };
+    reader.readAsDataURL(file);
+    // Reset input so same file can be re-uploaded
+    e.target.value = '';
+  };
+
+  const removeSignature = () => {
+    setSignatureImg(null);
+    localStorage.removeItem(SIGNATURE_STORAGE_KEY);
+    showToast('Signature removed');
+  };
 
   useEffect(() => {
     async function load() {
@@ -103,6 +142,13 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
       y += 8;
     };
 
+    const formatIndianDate = (dateStr) => {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return dateStr;
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' });
+    };
+
     addRow('Receipt No:', form.receiptNo);
     addRow('Date:', new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'long', year: 'numeric' }));
     y += 5;
@@ -128,16 +174,25 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
     addRow('PAN:', selectedTenant?.pan || 'N/A');
     y += 5;
 
-    addRow('Property Address:', '');
+    // Property Address — inline with label
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('Property Address:', margin, y);
     doc.setFont('helvetica', 'normal');
-    const addrLines = doc.splitTextToSize(selectedProperty?.address || '', 110);
-    addrLines.forEach(l => { doc.text(l, 80, y); y += 6; });
-    doc.text(`${selectedProperty?.city || ''}, ${selectedProperty?.state || ''} - ${selectedProperty?.pincode || ''}`, 80, y);
-    y += 10;
+    const fullAddr = [
+      selectedProperty?.address || '',
+      [selectedProperty?.city, selectedProperty?.state].filter(Boolean).join(', '),
+      selectedProperty?.pincode ? `- ${selectedProperty.pincode}` : '',
+    ].filter(Boolean).join(', ');
+    const addrLines = doc.splitTextToSize(fullAddr, 110);
+    addrLines.forEach((l, i) => {
+      doc.text(l, 80, y + (i * 6));
+    });
+    y += addrLines.length * 6 + 4;
 
     addRow('Rent Period:', getMonthName(form.month));
     addRow('Payment Method:', selectedPayment?.method || 'N/A');
-    addRow('Payment Date:', selectedPayment?.paidDate || 'N/A');
+    addRow('Payment Date:', formatIndianDate(selectedPayment?.paidDate));
 
     // Amount Box
     y += 10;
@@ -163,63 +218,112 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
       y += 10;
     }
 
+    // ============================================
+    // PAGE 2: Declaration & Signatures
+    // ============================================
+    doc.addPage();
+    y = 30;
+
     // Declaration — COMPLIANCE: proper HRA declaration text
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.text('DECLARATION', margin, y);
+    y += 10;
+
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.text(`I, ${form.landlordName}, hereby acknowledge receipt of Rs. ${amount.toLocaleString('en-IN')}/- from`, margin, y);
     y += 5;
     doc.text(`${selectedTenant?.name || ''} towards rent for the month of ${getMonthName(form.month)} for the above property.`, margin, y);
-    y += 6;
+    y += 8;
     doc.text('This receipt may be used by the tenant for claiming HRA exemption under Section 10(13A) of the Income Tax Act, 1961.', margin, y);
-    y += 6;
+    y += 8;
     if (amount * 12 > 100000) {
       doc.setFont('helvetica', 'italic');
       doc.text(`Note: As annual rent exceeds Rs. 1,00,000/-, Landlord's PAN (${form.landlordPan}) is mandatory for HRA claim.`, margin, y);
-      y += 6;
+      y += 8;
     }
 
     // Signatures
     y += 20;
-    if (y > 260) { doc.addPage(); y = 30; }
+
+    const leftX = margin;
+    const rightX = 120;
+
+    // Row 1: Labels
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.line(margin, y, 80, y);
-    doc.text('Landlord Signature', margin, y + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(`(${form.landlordName})`, margin, y + 14);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Landlord Signature:', leftX, y);
+    doc.text('Tenant Signature:', rightX, y);
+    y += 4;
 
+    // Row 2: Signature area
+    const sigLineY = y + 18; // where the signature line will be drawn
+
+    if (signatureImg) {
+      // Signature image sits just above the line
+      try {
+        doc.addImage(signatureImg, 'PNG', leftX, y, 45, 16);
+      } catch (e) {
+        // Fallback — no image
+      }
+    }
+
+    // Draw signature lines for both sides
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.3);
+    doc.line(leftX, sigLineY, leftX + 55, sigLineY);       // Landlord line
+    doc.line(rightX, sigLineY, rightX + 55, sigLineY);      // Tenant line
+    y = sigLineY + 2;
+
+    // Row 3: Digital signature note (if applicable)
+    if (signatureImg) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(7);
+      doc.setTextColor(120, 120, 120);
+      doc.text('(Digitally signed)', leftX, y + 3);
+      doc.setTextColor(0, 0, 0);
+    }
+    y += 8;
+
+    // Row 4: Names
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(10);
-    doc.line(130, y, 190, y);
-    doc.text('Tenant Signature', 130, y + 8);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.text(`(${selectedTenant?.name || ''})`, 130, y + 14);
+    doc.setTextColor(0, 0, 0);
+    doc.text(`Name: ${form.landlordName}`, leftX, y);
+    doc.text(`Name: ${selectedTenant?.name || ''}`, rightX, y);
 
-    y += 25;
+    // Revenue Stamp — only shown for cash payments (Indian Stamp Act, Section 30)
+    const isCash = selectedPayment?.method?.toLowerCase() === 'cash';
+    if (isCash) {
+      y += 12;
+      const stampX = 150;
+      const stampY = y;
+      const stampW = 35;
+      const stampH = 35;
+      doc.setDrawColor(180, 180, 180);
+      doc.setLineWidth(0.5);
+      doc.setTextColor(0, 0, 0);
+      doc.rect(stampX, stampY, stampW, stampH);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text('Revenue Stamp', stampX + stampW / 2, stampY + 14, { align: 'center' });
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7);
+      if (amount >= 5000) {
+        doc.text('[Affix Re. 1', stampX + stampW / 2, stampY + 22, { align: 'center' });
+        doc.text('stamp here]', stampX + stampW / 2, stampY + 27, { align: 'center' });
+      } else {
+        doc.text('Re. 1 affixed', stampX + stampW / 2, stampY + 22, { align: 'center' });
+      }
+      y = stampY + stampH + 10;
+    } else {
+      y += 14;
+    }
+    doc.setDrawColor(99, 102, 241);
     doc.setLineWidth(1);
     doc.line(margin, y, 190, y);
-    doc.setFont('helvetica', 'italic');
-    doc.setFontSize(8);
-    doc.setTextColor(120, 120, 120);
-    doc.text('Generated by RentEasy — Rental Management Platform | www.renteasy.in', 105, y + 6, { align: 'center' });
-
-    // Revenue Stamp — COMPLIANCE: ₹1 revenue stamp required for cash payments >₹5000
-    const isCash = selectedPayment?.method?.toLowerCase() === 'cash';
-    doc.setDrawColor(180, 180, 180);
-    doc.setLineWidth(0.5);
-    doc.setTextColor(0, 0, 0);
-    doc.rect(150, 80, 35, 35);
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    doc.text('Revenue', 167.5, 93, { align: 'center' });
-    doc.text('Stamp', 167.5, 98, { align: 'center' });
-    doc.text(isCash && amount >= 5000 ? '₹1 (Required)' : '₹1', 167.5, 105, { align: 'center' });
-    if (isCash && amount >= 5000) {
-      doc.setFontSize(6);
-      doc.text('(Affix here)', 167.5, 111, { align: 'center' });
-    }
 
     doc.save(`Rent_Receipt_${selectedTenant?.name?.replace(/\s/g, '_')}_${form.month}.pdf`);
 
@@ -275,6 +379,82 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
             onChange={e => setForm({ ...form, landlordAddress: e.target.value })} placeholder="Landlord's permanent address" />
         </div>
 
+        {/* Digital Signature Upload */}
+        <div className="form-group">
+          <label className="form-label">
+            <Pen size={14} style={{ marginRight: '6px', verticalAlign: 'middle' }} />
+            Landlord Digital Signature
+          </label>
+          <input
+            type="file"
+            ref={sigFileRef}
+            accept="image/png,image/jpeg,image/webp"
+            onChange={handleSignatureUpload}
+            style={{ display: 'none' }}
+          />
+          {signatureImg ? (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '16px',
+              padding: '12px 16px', background: '#f0fdf4', borderRadius: '10px',
+              border: '1px solid #bbf7d0',
+            }}>
+              <img
+                src={signatureImg}
+                alt="Landlord Signature"
+                style={{
+                  maxHeight: '50px', maxWidth: '180px',
+                  objectFit: 'contain', borderRadius: '6px',
+                  border: '1px solid #d1d5db', background: '#fff', padding: '4px',
+                }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--success)', fontWeight: 600 }}>
+                  ✅ Signature saved
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                  Will be auto-embedded in all receipt PDFs
+                </div>
+              </div>
+              <button
+                className="btn"
+                onClick={() => sigFileRef.current?.click()}
+                style={{ fontSize: '0.8rem', padding: '6px 12px' }}
+              >
+                Change
+              </button>
+              <button
+                className="btn"
+                onClick={removeSignature}
+                style={{ fontSize: '0.8rem', padding: '6px 10px', color: '#dc2626' }}
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ) : (
+            <div
+              onClick={() => sigFileRef.current?.click()}
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                gap: '10px', padding: '20px', borderRadius: '10px',
+                border: '2px dashed #cbd5e1', cursor: 'pointer',
+                background: '#f8fafc', transition: 'all 0.2s',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.background = '#eef2ff'; }}
+              onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = '#f8fafc'; }}
+            >
+              <Upload size={20} style={{ color: 'var(--gray-400)' }} />
+              <div>
+                <div style={{ fontSize: '0.9rem', color: 'var(--gray-600)', fontWeight: 500 }}>
+                  Upload signature image
+                </div>
+                <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
+                  PNG or JPG, max 500KB • Saved locally for all future receipts
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="form-row">
           <div className="form-group">
             <label className="form-label">Select Tenant</label>
@@ -319,6 +499,16 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
               {Number(selectedPayment?.amount) >= 50000 && (
                 <div style={{ padding: '10px', background: '#fef2f2', borderRadius: '8px', fontSize: '0.8rem', color: '#b91c1c', marginTop: '12px' }}>
                   ⚠️ TDS @ 5% (Rs. {Math.round(Number(selectedPayment?.amount) * 0.05).toLocaleString('en-IN')}) applicable under Section 194-IB
+                </div>
+              )}
+              {signatureImg && (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '10px',
+                  padding: '10px', background: '#f0fdf4', borderRadius: '8px',
+                  fontSize: '0.8rem', color: '#15803d', marginTop: '12px',
+                }}>
+                  <Pen size={14} />
+                  <span><strong>Digital signature</strong> will be embedded in PDF — no printing needed!</span>
                 </div>
               )}
             </div>
