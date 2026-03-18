@@ -73,7 +73,7 @@ function AppContent() {
   }
 
   const renderPage = () => {
-    const props = { showToast, refresh, key: refreshKey, onNavigate: setCurrentPage };
+    const props = { showToast, refresh, refreshKey, onNavigate: setCurrentPage };
     switch (currentPage) {
       case 'dashboard': return <Dashboard {...props} onNavigate={setCurrentPage} />;
       case 'properties': return <Properties {...props} />;

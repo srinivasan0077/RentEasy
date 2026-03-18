@@ -7,7 +7,7 @@ import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
 
-export default function Payments({ showToast, refresh, onNavigate }) {
+export default function Payments({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
   const userId = user?.id;
   const [filter, setFilter] = useState('all');
@@ -64,7 +64,7 @@ export default function Payments({ showToast, refresh, onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const handleTenantChange = (tenantId) => {
     const tenant = tenants.find(t => t.id === tenantId);

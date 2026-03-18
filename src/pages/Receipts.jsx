@@ -6,7 +6,7 @@ import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
 import jsPDF from 'jspdf';
 
-export default function Receipts({ showToast, refresh, onNavigate }) {
+export default function Receipts({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
   const userId = user?.id;
   const [upgradeMsg, setUpgradeMsg] = useState('');
@@ -38,7 +38,7 @@ export default function Receipts({ showToast, refresh, onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const selectedTenant = tenants.find(t => t.id === form.tenantId);
   const selectedProperty = selectedTenant ? properties.find(p => p.id === selectedTenant.propertyId) : null;

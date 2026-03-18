@@ -7,7 +7,7 @@ import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
 
-export default function Tenants({ showToast, refresh, onNavigate }) {
+export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
   const userId = user?.id;
   const [showModal, setShowModal] = useState(false);
@@ -34,7 +34,7 @@ export default function Tenants({ showToast, refresh, onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const filteredTenants = tenants.filter(t =>
     t.name.toLowerCase().includes(search.toLowerCase()) ||

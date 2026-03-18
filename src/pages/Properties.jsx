@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
 
-export default function Properties({ showToast, refresh, onNavigate }) {
+export default function Properties({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
   const userId = user?.id;
   const [showModal, setShowModal] = useState(false);
@@ -29,7 +29,7 @@ export default function Properties({ showToast, refresh, onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

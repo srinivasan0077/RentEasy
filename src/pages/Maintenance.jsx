@@ -7,7 +7,7 @@ import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
 
-export default function Maintenance({ showToast, refresh, onNavigate }) {
+export default function Maintenance({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
   const userId = user?.id;
   const [showModal, setShowModal] = useState(false);
@@ -38,7 +38,7 @@ export default function Maintenance({ showToast, refresh, onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const filteredRequests = requests
     .filter(r => filter === 'all' || r.status === filter)

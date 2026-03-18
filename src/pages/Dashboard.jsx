@@ -3,7 +3,7 @@ import { Building2, Users, IndianRupee, AlertTriangle, TrendingUp, ArrowRight } 
 import { getProperties, getTenants, getPayments, getMaintenanceRequests } from '../store';
 import { useAuth } from '../context/AuthContext';
 
-export default function Dashboard({ onNavigate }) {
+export default function Dashboard({ onNavigate, refreshKey }) {
   const { user } = useAuth();
   const userId = user?.id;
   const [properties, setProperties] = useState([]);
@@ -27,7 +27,7 @@ export default function Dashboard({ onNavigate }) {
       setLoading(false);
     }
     load();
-  }, [userId]);
+  }, [userId, refreshKey]);
 
   const totalRent = properties.reduce((sum, p) => sum + Number(p.rent), 0);
   const paidPayments = payments.filter(p => p.status === 'paid');
