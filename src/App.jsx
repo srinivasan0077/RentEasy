@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Home, Building2, Users, CreditCard, FileText, Receipt, Wrench, Menu, X, Crown, LogOut } from 'lucide-react';
+import { Home, Building2, Users, CreditCard, FileText, Receipt, Wrench, Menu, X, Crown, LogOut, User, Shield } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import Properties from './pages/Properties';
 import Tenants from './pages/Tenants';
@@ -8,6 +8,8 @@ import Agreements from './pages/Agreements';
 import Receipts from './pages/Receipts';
 import Maintenance from './pages/Maintenance';
 import LicensePage from './pages/LicensePage';
+import LandlordProfile from './pages/LandlordProfile';
+import AdminPortal from './pages/AdminPortal';
 import AuthPage from './pages/AuthPage';
 import LandingPage from './pages/LandingPage';
 import Toast from './components/Toast';
@@ -23,8 +25,11 @@ const NAV_ITEMS = [
   { id: 'agreements', label: 'Agreements', icon: FileText },
   { id: 'receipts', label: 'Rent Receipts', icon: Receipt },
   { id: 'maintenance', label: 'Maintenance', icon: Wrench },
+  { id: 'landlord', label: 'Landlord Profile', icon: User },
   { id: 'license', label: 'Plans & Pricing', icon: Crown },
 ];
+
+const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
 
 function AppContent() {
   const { user, profile, loading, isLocal, signOut, getDaysLeft, isTrialExpired } = useAuth();
@@ -82,7 +87,9 @@ function AppContent() {
       case 'agreements': return <Agreements {...props} />;
       case 'receipts': return <Receipts {...props} />;
       case 'maintenance': return <Maintenance {...props} />;
+      case 'landlord': return <LandlordProfile {...props} />;
       case 'license': return <LicensePage {...props} />;
+      case 'admin': return <AdminPortal {...props} />;
       default: return <Dashboard {...props} onNavigate={setCurrentPage} />;
     }
   };
@@ -151,6 +158,16 @@ function AppContent() {
               {item.label}
             </button>
           ))}
+          {user?.email === ADMIN_EMAIL && (
+            <button
+              className={`nav-link ${currentPage === 'admin' ? 'active' : ''}`}
+              onClick={() => { setCurrentPage('admin'); setSidebarOpen(false); }}
+              style={{ borderTop: '1px solid var(--gray-200)', marginTop: '8px', paddingTop: '12px' }}
+            >
+              <Shield size={20} />
+              Admin Portal
+            </button>
+          )}
         </nav>
 
         <div className="sidebar-user">

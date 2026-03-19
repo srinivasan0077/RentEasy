@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { Download, Receipt, FileText, Upload, X, Pen } from 'lucide-react';
-import { getTenants, getProperties, getPayments, addReceipt, getReceipts } from '../store';
+import { Download, Receipt, FileText, Upload, X, Pen, ClipboardList } from 'lucide-react';
+import { getTenants, getProperties, getPayments, addReceipt, getReceipts, getLandlordProfile, saveLandlordProfile } from '../store';
 import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
+import { FormSkeleton } from '../components/SkeletonLoader';
 import jsPDF from 'jspdf';
 
 const SIGNATURE_STORAGE_KEY = 'renteasy_landlord_signature';
@@ -22,6 +23,7 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
   const [payments, setPayments] = useState([]);
   const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [signatureImg, setSignatureImg] = useState(null);
@@ -79,6 +81,39 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
     load();
   }, [userId, refreshKey]);
 
+  // Landlord profile auto-fill
+  const savedLandlord = getLandlordProfile(userId);
+  const hasLandlordProfile = savedLandlord && (savedLandlord.name || savedLandlord.pan);
+
+  const fillFromProfile = () => {
+    if (!savedLandlord) return;
+    setForm(prev => ({
+      ...prev,
+      landlordName: savedLandlord.name || prev.landlordName,
+      landlordPan: savedLandlord.pan || prev.landlordPan,
+      landlordAddress: savedLandlord.address || prev.landlordAddress,
+    }));
+    showToast('Landlord details filled from saved profile ✅');
+  };
+
+  // Auto-save landlord details when generating receipt
+  const maybeSaveLandlordProfile = () => {
+    if (form.landlordName && form.landlordPan) {
+      const current = getLandlordProfile(userId);
+      const changed = !current ||
+        current.name !== form.landlordName ||
+        current.pan !== form.landlordPan ||
+        current.address !== form.landlordAddress;
+      if (changed) {
+        saveLandlordProfile({
+          name: form.landlordName,
+          pan: form.landlordPan,
+          address: form.landlordAddress,
+        }, userId);
+      }
+    }
+  };
+
   const selectedTenant = tenants.find(t => t.id === form.tenantId);
   const selectedProperty = selectedTenant ? properties.find(p => p.id === selectedTenant.propertyId) : null;
   const selectedPayment = form.tenantId && form.month
@@ -106,10 +141,12 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
   };
 
   const downloadReceiptPDF = async () => {
+    if (submitting) return;
     if (!form.landlordName || !form.landlordPan) {
       showToast('Landlord name and PAN are required', 'error');
       return;
     }
+    setSubmitting(true);
 
     const doc = new jsPDF();
     const margin = 20;
@@ -337,17 +374,22 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
       }, userId);
 
       showToast('Rent receipt downloaded! 🧾');
+      maybeSaveLandlordProfile();
       setForm({ ...form, receiptNo: `RR-${Date.now().toString().slice(-6)}` });
       refresh();
     } catch (err) {
       console.error('Save receipt error:', err);
       showToast(err.message || 'PDF downloaded but failed to save record', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const paidMonths = form.tenantId
     ? [...new Set(payments.filter(p => p.tenantId === form.tenantId && p.status === 'paid').map(p => p.month))].sort().reverse()
     : [];
+
+  if (loading) return <FormSkeleton />;
 
   return (
     <div>
@@ -358,6 +400,32 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
 
       <div className="card" style={{ marginBottom: '24px' }}>
         <h3 style={{ marginBottom: '20px' }}>🧾 Generate New Receipt</h3>
+
+        {/* Landlord Profile Auto-fill */}
+        {hasLandlordProfile && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            padding: '10px 16px', background: '#eef2ff', borderRadius: '10px',
+            border: '1px solid #c7d2fe', marginBottom: '16px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#4338ca' }}>
+              <ClipboardList size={16} />
+              <span>Saved landlord profile: <strong>{savedLandlord.name}</strong> ({savedLandlord.pan})</span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={fillFromProfile}
+              style={{
+                background: '#4f46e5', color: '#fff', border: 'none',
+                padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem',
+                cursor: 'pointer', fontWeight: 600,
+              }}
+            >
+              📋 Use Saved Details
+            </button>
+          </div>
+        )}
 
         <div className="form-row">
           <div className="form-group">
@@ -512,8 +580,8 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
                 </div>
               )}
             </div>
-            <button className="btn btn-primary" onClick={downloadReceiptPDF}>
-              <Download size={18} /> Download Receipt PDF
+            <button className="btn btn-primary" onClick={downloadReceiptPDF} disabled={submitting}>
+              <Download size={18} /> {submitting ? '⏳ Downloading...' : 'Download Receipt PDF'}
             </button>
           </>
         )}

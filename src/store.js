@@ -14,6 +14,7 @@ const STORAGE_KEYS = {
   AGREEMENTS: 'renteasy_agreements',
   MAINTENANCE: 'renteasy_maintenance',
   RECEIPTS: 'renteasy_receipts',
+  LANDLORD_PROFILE: 'renteasy_landlord_profile',
 };
 
 function getLocal(key) {
@@ -45,6 +46,7 @@ export async function addProperty(property, userId) {
   if (isSupabaseConfigured() && userId) {
     const payload = {
       user_id: userId,
+      name: property.name || '',
       address: property.address,
       city: property.city || '',
       state: property.state || '',
@@ -80,7 +82,10 @@ export async function updateProperty(id, updates, userId) {
 
 export async function deleteProperty(id, userId) {
   if (isSupabaseConfigured() && userId) {
-    const { error } = await supabase.from('properties').update({ is_active: false }).eq('id', id).eq('user_id', userId);
+    // Disassociate tenants — set their property_id to NULL (keeps tenant data intact)
+    await supabase.from('tenants').update({ property_id: null }).eq('property_id', id).eq('user_id', userId);
+    // Hard delete the property (FKs are SET NULL so payments/agreements/etc. are preserved)
+    const { error } = await supabase.from('properties').delete().eq('id', id).eq('user_id', userId);
     if (error) throw error;
     return;
   }
@@ -101,6 +106,7 @@ export async function getTenants(userId) {
     if (!error) return data.map(t => ({
       ...t,
       propertyId: t.property_id,
+      unitNumber: t.unit_number || '',
       moveInDate: t.move_in_date,
       leaseEnd: t.lease_end,
       emergencyName: t.emergency_name,
@@ -118,6 +124,7 @@ export async function addTenant(tenant, userId) {
     const payload = {
       user_id: userId,
       property_id: tenant.propertyId || tenant.property_id,
+      unit_number: tenant.unitNumber || tenant.unit_number || '',
       name: tenant.name,
       phone: tenant.phone,
       email: tenant.email || '',
@@ -149,6 +156,8 @@ export async function updateTenant(id, updates, userId) {
 }
 
 export async function deleteTenant(id, userId) {
+  // Clean up any attachments (Aadhaar, PAN docs) linked to this tenant
+  await deleteAttachmentsForEntity(userId, 'tenant', id);
   if (isSupabaseConfigured() && userId) {
     const { error } = await supabase.from('tenants').update({ is_active: false }).eq('id', id).eq('user_id', userId);
     if (error) throw error;
@@ -217,6 +226,17 @@ export async function updatePayment(id, updates, userId) {
     return;
   }
   setLocal(STORAGE_KEYS.PAYMENTS, getLocal(STORAGE_KEYS.PAYMENTS).map(p => p.id === id ? { ...p, ...updates } : p));
+}
+
+export async function deletePayment(id, userId) {
+  // Clean up any attachments (screenshots) linked to this payment
+  await deleteAttachmentsForEntity(userId, 'payment', id);
+  if (isSupabaseConfigured() && userId) {
+    const { error } = await supabase.from('payments').delete().eq('id', id).eq('user_id', userId);
+    if (error) throw error;
+    return;
+  }
+  setLocal(STORAGE_KEYS.PAYMENTS, getLocal(STORAGE_KEYS.PAYMENTS).filter(p => p.id !== id));
 }
 
 // ========================
@@ -323,6 +343,17 @@ export async function updateMaintenanceRequest(id, updates, userId) {
   setLocal(STORAGE_KEYS.MAINTENANCE, getLocal(STORAGE_KEYS.MAINTENANCE).map(r => r.id === id ? { ...r, ...updates } : r));
 }
 
+export async function deleteMaintenanceRequest(id, userId) {
+  // Clean up any attachments (photos) linked to this request
+  await deleteAttachmentsForEntity(userId, 'maintenance', id);
+  if (isSupabaseConfigured() && userId) {
+    const { error } = await supabase.from('maintenance_requests').delete().eq('id', id).eq('user_id', userId);
+    if (error) throw error;
+    return;
+  }
+  setLocal(STORAGE_KEYS.MAINTENANCE, getLocal(STORAGE_KEYS.MAINTENANCE).filter(r => r.id !== id));
+}
+
 // ========================
 // RECEIPTS
 // ========================
@@ -418,8 +449,8 @@ export async function uploadAttachment(file, userId, entityType, entityId, fileT
     publicUrl = signedData?.signedUrl || storagePath;
   }
 
-  // Store in attachments table
-  await supabase.from('attachments').insert({
+  // Store in attachments table (server-side trigger enforces storage limit)
+  const { error: attachError } = await supabase.from('attachments').insert({
     user_id: userId,
     entity_type: entityType,
     entity_id: entityId,
@@ -430,7 +461,44 @@ export async function uploadAttachment(file, userId, entityType, entityId, fileT
     mime_type: file.type,
   });
 
+  if (attachError) {
+    // Clean up the uploaded file since the DB record failed
+    await supabase.storage.from(ATTACHMENT_BUCKET).remove([filePath]);
+    
+    // Check if it's a storage limit error from our DB trigger
+    if (attachError.message?.includes('STORAGE_LIMIT')) {
+      const friendlyMsg = attachError.message.replace('STORAGE_LIMIT: ', '');
+      throw new Error(friendlyMsg);
+    }
+    throw new Error(`Upload failed: ${attachError.message}`);
+  }
+
   return publicUrl;
+}
+
+/**
+ * Get total storage usage in MB for a user
+ * Uses server-side RPC function (tamper-proof) with client-side fallback
+ */
+export async function getStorageUsageMB(userId) {
+  if (!isSupabaseConfigured() || !userId) return 0;
+  try {
+    // Try server-side RPC first (tamper-proof)
+    const { data, error } = await supabase.rpc('get_storage_usage', { user_uuid: userId });
+    if (!error && data) {
+      return data.used_mb || 0;
+    }
+    // Fallback: client-side calculation
+    const { data: attachments, error: fetchErr } = await supabase
+      .from('attachments')
+      .select('file_size')
+      .eq('user_id', userId);
+    if (fetchErr || !attachments) return 0;
+    const totalBytes = attachments.reduce((sum, a) => sum + (Number(a.file_size) || 0), 0);
+    return Math.round((totalBytes / (1024 * 1024)) * 100) / 100;
+  } catch {
+    return 0;
+  }
 }
 
 /**
@@ -460,6 +528,63 @@ export async function getAttachments(userId, entityType, entityId) {
     mimeType: a.mime_type,
     createdAt: a.created_at,
   }));
+}
+
+/**
+ * Delete attachments for an entity. If label is provided, only delete that specific attachment.
+ * e.g. deleteAttachmentsForEntity(userId, 'tenant', id, 'aadhaar') — only deletes Aadhaar
+ * e.g. deleteAttachmentsForEntity(userId, 'tenant', id) — deletes ALL attachments for that tenant
+ */
+export async function deleteAttachmentsForEntity(userId, entityType, entityId, label) {
+  if (!isSupabaseConfigured() || !userId) return;
+  try {
+    // Get attachments for this entity (optionally filtered by label)
+    let query = supabase
+      .from('attachments')
+      .select('id, file_url')
+      .eq('user_id', userId)
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId);
+
+    if (label) {
+      query = query.eq('file_type', label);
+    }
+
+    const { data: attachments } = await query;
+
+    if (!attachments || attachments.length === 0) return;
+
+    // Remove files from storage
+    const storagePaths = attachments
+      .filter(a => a.file_url)
+      .map(a => {
+        const parts = a.file_url.split(`${ATTACHMENT_BUCKET}/`);
+        return parts[1] || null;
+      })
+      .filter(Boolean);
+
+    if (storagePaths.length > 0) {
+      await supabase.storage.from(ATTACHMENT_BUCKET).remove(storagePaths);
+    }
+
+    // Delete DB records
+    let deleteQuery = supabase
+      .from('attachments')
+      .delete()
+      .eq('user_id', userId)
+      .eq('entity_type', entityType)
+      .eq('entity_id', entityId);
+
+    if (label) {
+      deleteQuery = deleteQuery.eq('file_type', label);
+    }
+
+    const { error } = await deleteQuery;
+
+    if (error) console.warn('Failed to delete entity attachments:', error.message);
+  } catch (err) {
+    console.warn('deleteAttachmentsForEntity error:', err);
+  }
 }
 
 /**
@@ -496,6 +621,13 @@ export async function deleteAttachment(attachmentId, userId) {
 // ========================
 // DEMO DATA (localStorage only)
 // ========================
+function formatDemoDate(monthsOffset) {
+  const d = new Date();
+  d.setMonth(d.getMonth() + monthsOffset);
+  d.setDate(1);
+  return d.toISOString().split('T')[0];
+}
+
 export function loadDemoData() {
   if (getLocal(STORAGE_KEYS.PROPERTIES).length > 0) return;
 
@@ -506,25 +638,32 @@ export function loadDemoData() {
   const now = new Date().toISOString();
 
   const props = [
-    { id: prop1Id, address: '302, Sunrise Apartments, Koramangala', city: 'Bangalore', state: 'Karnataka', pincode: '560034', type: '2BHK', rent: 25000, deposit: 100000, area: 1100, createdAt: now },
-    { id: prop2Id, address: '15, Green Valley Society, Andheri West', city: 'Mumbai', state: 'Maharashtra', pincode: '400058', type: '1BHK', rent: 18000, deposit: 72000, area: 650, createdAt: now },
+    { id: prop1Id, name: 'Sunrise Apartments', address: '302, Sunrise Apartments, Koramangala', city: 'Bangalore', state: 'Karnataka', pincode: '560034', type: '2BHK', rent: 25000, deposit: 100000, area: 1100, createdAt: now },
+    { id: prop2Id, name: 'Green Valley', address: '15, Green Valley Society, Andheri West', city: 'Mumbai', state: 'Maharashtra', pincode: '400058', type: '1BHK', rent: 18000, deposit: 72000, area: 650, createdAt: now },
   ];
   setLocal(STORAGE_KEYS.PROPERTIES, props);
 
   const tenants = [
-    { id: tenant1Id, name: 'Rahul Sharma', phone: '9876543210', email: 'rahul.sharma@email.com', aadhaar: '1234-5678-9012', pan: 'ABCDE1234F', propertyId: prop1Id, moveInDate: '2025-06-01', leaseEnd: '2026-05-31', emergencyContact: '9876543211', emergencyName: 'Priya Sharma', createdAt: now },
-    { id: tenant2Id, name: 'Anita Desai', phone: '9988776655', email: 'anita.desai@email.com', aadhaar: '9876-5432-1098', pan: 'FGHIJ5678K', propertyId: prop2Id, moveInDate: '2025-09-01', leaseEnd: '2026-08-31', emergencyContact: '9988776656', emergencyName: 'Vikram Desai', createdAt: now },
+    { id: tenant1Id, name: 'Rahul Sharma', phone: '9876543210', email: 'rahul.sharma@email.com', aadhaar: '1234-5678-9012', pan: 'ABCDE1234F', propertyId: prop1Id, moveInDate: formatDemoDate(-9), leaseEnd: formatDemoDate(3), emergencyContact: '9876543211', emergencyName: 'Priya Sharma', createdAt: now },
+    { id: tenant2Id, name: 'Anita Desai', phone: '9988776655', email: 'anita.desai@email.com', aadhaar: '9876-5432-1098', pan: 'FGHIJ5678K', propertyId: prop2Id, moveInDate: formatDemoDate(-6), leaseEnd: formatDemoDate(6), emergencyContact: '9988776656', emergencyName: 'Vikram Desai', createdAt: now },
   ];
   setLocal(STORAGE_KEYS.TENANTS, tenants);
 
   const payments = [];
-  const months = ['2025-10', '2025-11', '2025-12', '2026-01', '2026-02'];
-  months.forEach(month => {
+  // Generate 5 past months of payment history + current month
+  const today = new Date();
+  for (let i = 5; i >= 1; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const month = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     payments.push({ id: generateId(), tenantId: tenant1Id, propertyId: prop1Id, amount: 25000, month, status: 'paid', paidDate: `${month}-05`, method: 'UPI', createdAt: now });
-    payments.push({ id: generateId(), tenantId: tenant2Id, propertyId: prop2Id, amount: 18000, month, status: month === '2026-02' ? 'pending' : 'paid', paidDate: month === '2026-02' ? null : `${month}-03`, method: 'Bank Transfer', createdAt: now });
-  });
-  payments.push({ id: generateId(), tenantId: tenant1Id, propertyId: prop1Id, amount: 25000, month: '2026-03', status: 'pending', paidDate: null, method: '', createdAt: now });
-  payments.push({ id: generateId(), tenantId: tenant2Id, propertyId: prop2Id, amount: 18000, month: '2026-03', status: 'overdue', paidDate: null, method: '', createdAt: now });
+    // Make the most recent past month pending for tenant2
+    const isPrevMonth = i === 1;
+    payments.push({ id: generateId(), tenantId: tenant2Id, propertyId: prop2Id, amount: 18000, month, status: isPrevMonth ? 'pending' : 'paid', paidDate: isPrevMonth ? null : `${month}-03`, method: 'Bank Transfer', createdAt: now });
+  }
+  // Current month — both pending (auto-overdue logic will handle status)
+  const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+  payments.push({ id: generateId(), tenantId: tenant1Id, propertyId: prop1Id, amount: 25000, month: currentMonth, status: 'pending', paidDate: null, method: '', createdAt: now });
+  payments.push({ id: generateId(), tenantId: tenant2Id, propertyId: prop2Id, amount: 18000, month: currentMonth, status: 'pending', paidDate: null, method: '', createdAt: now });
   setLocal(STORAGE_KEYS.PAYMENTS, payments);
 
   const maintenance = [
@@ -532,4 +671,33 @@ export function loadDemoData() {
     { id: generateId(), propertyId: prop2Id, tenantId: tenant2Id, title: 'AC not cooling properly', description: 'The bedroom AC is running but not cooling. Might need gas refill.', priority: 'high', status: 'in-progress', createdAt: now },
   ];
   setLocal(STORAGE_KEYS.MAINTENANCE, maintenance);
+}
+
+// ========================
+// LANDLORD PROFILE
+// ========================
+export function getLandlordProfile(userId) {
+  try {
+    const key = userId ? `${STORAGE_KEYS.LANDLORD_PROFILE}_${userId}` : STORAGE_KEYS.LANDLORD_PROFILE;
+    const data = localStorage.getItem(key);
+    return data ? JSON.parse(data) : null;
+  } catch { return null; }
+}
+
+export function saveLandlordProfile(profile, userId) {
+  const key = userId ? `${STORAGE_KEYS.LANDLORD_PROFILE}_${userId}` : STORAGE_KEYS.LANDLORD_PROFILE;
+  localStorage.setItem(key, JSON.stringify({
+    name: profile.name || '',
+    phone: profile.phone || '',
+    pan: profile.pan || '',
+    aadhaar: profile.aadhaar || '',
+    address: profile.address || '',
+    rentDueDay: Number(profile.rentDueDay) || 5,
+    updatedAt: new Date().toISOString(),
+  }));
+}
+
+export function getRentDueDay(userId) {
+  const profile = getLandlordProfile(userId);
+  return profile?.rentDueDay || 5;
 }

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Building2, Users, IndianRupee, AlertTriangle, TrendingUp, ArrowRight } from 'lucide-react';
 import { getProperties, getTenants, getPayments, getMaintenanceRequests } from '../store';
 import { useAuth } from '../context/AuthContext';
+import { DashboardSkeleton } from '../components/SkeletonLoader';
 
 export default function Dashboard({ onNavigate, refreshKey }) {
   const { user } = useAuth();
@@ -30,27 +31,28 @@ export default function Dashboard({ onNavigate, refreshKey }) {
   }, [userId, refreshKey]);
 
   const totalRent = properties.reduce((sum, p) => sum + Number(p.rent), 0);
+  const currentMonth = new Date().toISOString().slice(0, 7); // e.g. '2026-03'
+  const currentMonthLabel = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); // e.g. 'March 2026'
   const paidPayments = payments.filter(p => p.status === 'paid');
   const pendingPayments = payments.filter(p => p.status === 'pending');
   const overduePayments = payments.filter(p => p.status === 'overdue');
   const collectedThisMonth = payments
-    .filter(p => p.status === 'paid' && p.month === '2026-03')
+    .filter(p => p.status === 'paid' && p.month === currentMonth)
     .reduce((sum, p) => sum + Number(p.amount), 0);
   const totalCollected = paidPayments.reduce((sum, p) => sum + Number(p.amount), 0);
   const openMaintenance = maintenance.filter(m => m.status !== 'resolved');
 
-  const recentPayments = [...payments]
-    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
-    .slice(0, 5);
+  const thisMonthPayments = payments
+    .filter(p => p.month === currentMonth)
+    .sort((a, b) => {
+      const order = { overdue: 0, pending: 1, paid: 2 };
+      return (order[a.status] ?? 3) - (order[b.status] ?? 3);
+    });
 
   const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
   if (loading) {
-    return (
-      <div className="card" style={{ textAlign: 'center', padding: '60px' }}>
-        <p style={{ color: 'var(--gray-400)' }}>Loading dashboard...</p>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
   return (
     <div>
@@ -86,7 +88,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
         {/* Monthly Overview */}
         <div className="card">
           <div className="card-header">
-            <h3>📊 This Month (March 2026)</h3>
+            <h3>📊 This Month ({currentMonthLabel})</h3>
           </div>
           <div style={{ display: 'grid', gap: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--success-bg)', borderRadius: '8px' }}>
@@ -96,13 +98,13 @@ export default function Dashboard({ onNavigate, refreshKey }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--warning-bg)', borderRadius: '8px' }}>
               <span style={{ fontWeight: 600, color: 'var(--warning)' }}>Pending</span>
               <span style={{ fontWeight: 700, color: 'var(--warning)' }}>
-                {formatCurrency(payments.filter(p => p.status === 'pending' && p.month === '2026-03').reduce((s, p) => s + Number(p.amount), 0))}
+                {formatCurrency(payments.filter(p => p.status === 'pending' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--danger-bg)', borderRadius: '8px' }}>
               <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Overdue</span>
               <span style={{ fontWeight: 700, color: 'var(--danger)' }}>
-                {formatCurrency(payments.filter(p => p.status === 'overdue' && p.month === '2026-03').reduce((s, p) => s + Number(p.amount), 0))}
+                {formatCurrency(payments.filter(p => p.status === 'overdue' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--primary-bg)', borderRadius: '8px' }}>
@@ -150,34 +152,37 @@ export default function Dashboard({ onNavigate, refreshKey }) {
         </div>
       </div>
 
-      {/* Recent Payments */}
+      {/* This Month's Payments */}
       <div className="card" style={{ marginTop: '24px' }}>
         <div className="card-header">
-          <h3>💳 Recent Payments</h3>
+          <h3>💳 This Month's Payments</h3>
           <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('payments')}>
             View All <ArrowRight size={14} />
           </button>
         </div>
+        {thisMonthPayments.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px', color: 'var(--gray-400)' }}>
+            No payments recorded for {currentMonthLabel}
+          </div>
+        ) : (
         <div className="table-wrapper">
           <table>
             <thead>
               <tr>
                 <th>Tenant</th>
                 <th>Property</th>
-                <th>Month</th>
                 <th>Amount</th>
                 <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {recentPayments.map(payment => {
+              {thisMonthPayments.map(payment => {
                 const tenant = tenants.find(t => t.id === payment.tenantId);
                 const property = properties.find(p => p.id === payment.propertyId);
                 return (
                   <tr key={payment.id}>
                     <td style={{ fontWeight: 600 }}>{tenant?.name || 'Unknown'}</td>
-                    <td>{property?.address?.substring(0, 30) || 'Unknown'}...</td>
-                    <td>{payment.month}</td>
+                    <td>{(() => { const label = property?.name || property?.address; return label ? (label.length > 30 ? label.substring(0, 30) + '...' : label) : 'Unknown'; })()}</td>
                     <td style={{ fontWeight: 600 }}>{formatCurrency(payment.amount)}</td>
                     <td>
                       <span className={`badge badge-${payment.status === 'paid' ? 'success' : payment.status === 'pending' ? 'warning' : 'danger'}`}>
@@ -190,6 +195,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
             </tbody>
           </table>
         </div>
+        )}
       </div>
 
       {/* Maintenance */}
@@ -213,7 +219,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
                 </div>
                 <div className="request-desc">{req.description}</div>
                 <div className="request-meta">
-                  <span>📍 {property?.address?.substring(0, 30)}</span>
+                  <span>📍 {(() => { const label = property?.name || property?.address; return label ? (label.length > 30 ? label.substring(0, 30) + '...' : label) : 'Unknown'; })()}</span>
                   <span className={`badge badge-${req.status === 'open' ? 'warning' : 'primary'}`}>{req.status}</span>
                 </div>
               </div>

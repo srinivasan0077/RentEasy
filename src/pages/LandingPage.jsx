@@ -401,7 +401,7 @@ export default function LandingPage({ onGetStarted }) {
             </div>
           </div>
           <div className="landing-footer-bottom">
-            <p>© 2026 RentEasy. Made with ❤️ in India.</p>
+            <p>© {new Date().getFullYear()} RentEasy. Made with ❤️ in India.</p>
           </div>
         </div>
       </footer>

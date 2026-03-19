@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { PLAN_LIMITS, checkLimit as checkPlanLimit, getPlanLimits as getPlanLimitsFromConfig } from '../lib/planLimits';
+import { getStorageUsageMB } from '../store';
 
 const AuthContext = createContext({});
 
@@ -24,6 +25,7 @@ export function AuthProvider({ children }) {
   const [license, setLicense] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isLocal, setIsLocal] = useState(false);
+  const [storageUsedMB, setStorageUsedMB] = useState(0);
 
   const fetchProfile = useCallback(async (userId) => {
     try {
@@ -63,6 +65,7 @@ export function AuthProvider({ children }) {
       setUser(null);
       setProfile(null);
       setLicense(null);
+      setStorageUsedMB(0);
       return;
     }
 
@@ -76,6 +79,10 @@ export function AuthProvider({ children }) {
 
     // Check license, falls back to defaults internally
     await checkLicense(sessionUser.id);
+
+    // Fetch storage usage
+    const usage = await getStorageUsageMB(sessionUser.id);
+    setStorageUsedMB(usage);
   }, [fetchProfile, checkLicense]);
 
   useEffect(() => {
@@ -212,7 +219,17 @@ export function AuthProvider({ children }) {
    * @returns {{ allowed: boolean, limit: number, remaining: number, message: string }}
    */
   const checkLimit = (feature, currentCount) => {
+    // For storage, auto-inject actual usage if caller passes 0 (legacy compat)
+    if (feature === 'attachmentsMB' && currentCount === 0) {
+      return checkPlanLimit(currentPlan, feature, storageUsedMB);
+    }
     return checkPlanLimit(currentPlan, feature, currentCount);
+  };
+
+  const refreshStorageUsage = async () => {
+    if (!user?.id || isLocal) return;
+    const usage = await getStorageUsageMB(user.id);
+    setStorageUsedMB(usage);
   };
 
   const refreshLicense = async () => {
@@ -228,6 +245,7 @@ export function AuthProvider({ children }) {
     loading,
     isLocal,
     currentPlan,
+    storageUsedMB,
     signUp,
     signIn,
     signInWithOTP,
@@ -240,6 +258,7 @@ export function AuthProvider({ children }) {
     isPro,
     checkLimit,
     refreshLicense,
+    refreshStorageUsage,
     PLAN_LIMITS,
   };
 

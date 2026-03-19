@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Plus, Wrench, CheckCircle, Clock, AlertTriangle, Eye, Pencil } from 'lucide-react';
-import { getMaintenanceRequests, addMaintenanceRequest, updateMaintenanceRequest, getProperties, getTenants, uploadAttachment } from '../store';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Wrench, CheckCircle, Clock, AlertTriangle, Eye, Pencil, Upload, X, Camera, Trash2 } from 'lucide-react';
+import { getMaintenanceRequests, addMaintenanceRequest, updateMaintenanceRequest, deleteMaintenanceRequest, getProperties, getTenants, uploadAttachment, deleteAttachmentsForEntity } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
+import { CardListSkeleton } from '../components/SkeletonLoader';
 
 export default function Maintenance({ showToast, refresh, refreshKey, onNavigate }) {
-  const { user, checkLimit, currentPlan } = useAuth();
+  const { user, checkLimit, currentPlan, refreshStorageUsage } = useAuth();
   const userId = user?.id;
   const [showModal, setShowModal] = useState(false);
   const [editingRequest, setEditingRequest] = useState(null);
@@ -22,8 +23,14 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
   const [properties, setProperties] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [pendingPhoto, setPendingPhoto] = useState(null); // File object for new requests
+  const [pendingPhotoPreview, setPendingPhotoPreview] = useState(null);
+  const newPhotoRef = useRef(null);
+  const quickUploadRef = useRef(null);
+  const [quickUploadTarget, setQuickUploadTarget] = useState(null); // req.id for quick attach
 
   useEffect(() => {
     async function load() {
@@ -46,10 +53,12 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     if (!form.title || !form.propertyId) {
       showToast('Please fill title and select a property', 'error');
       return;
     }
+    setSubmitting(true);
     try {
       if (editingRequest) {
         await updateMaintenanceRequest(editingRequest.id, {
@@ -61,14 +70,29 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
         }, userId);
         showToast('Maintenance request updated!');
       } else {
-        await addMaintenanceRequest(form, userId);
-        showToast('Maintenance request added!');
+        const newReq = await addMaintenanceRequest(form, userId);
+        // Upload pending photo if attached during creation
+        if (pendingPhoto && newReq?.id && isSupabaseConfigured()) {
+          try {
+            const url = await uploadAttachment(pendingPhoto, userId, 'maintenance', newReq.id, 'photo');
+            await updateMaintenanceRequest(newReq.id, { photo_url: url }, userId);
+            showToast('Maintenance request added with photo! 📸');
+            refreshStorageUsage();
+          } catch (uploadErr) {
+            console.error('Photo upload after creation failed:', uploadErr);
+            showToast('Request added, but photo upload failed', 'error');
+          }
+        } else {
+          showToast('Maintenance request added!');
+        }
       }
       resetForm();
       refresh();
     } catch (err) {
       console.error('Save maintenance error:', err);
       showToast(err.message || 'Failed to save request', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -76,6 +100,9 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
     setForm({ propertyId: '', tenantId: '', title: '', description: '', priority: 'medium' });
     setShowModal(false);
     setEditingRequest(null);
+    setPendingPhoto(null);
+    setPendingPhotoPreview(null);
+    setSubmitting(false);
   };
 
   const openEditModal = (req) => {
@@ -112,6 +139,43 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
     setForm({ ...form, propertyId: propId, tenantId: tenant?.id || '' });
   };
 
+  const handleQuickPhotoUpload = async (file, reqId) => {
+    if (!file || !reqId) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Photo must be under 5MB', 'error');
+      return;
+    }
+    const { allowed, message: limitMsg } = checkLimit('attachmentsMB', 0);
+    if (!allowed) { setUpgradeMsg(limitMsg); return; }
+    try {
+      // Delete old photo (file + DB row) before uploading new one
+      await deleteAttachmentsForEntity(userId, 'maintenance', reqId);
+      const url = await uploadAttachment(file, userId, 'maintenance', reqId, 'photo');
+      await updateMaintenanceRequest(reqId, { photo_url: url }, userId);
+      showToast('Photo attached! 📸');
+      refreshStorageUsage();
+      refresh();
+    } catch (err) {
+      console.error('Quick photo upload failed:', err);
+      showToast(err.message || 'Photo upload failed', 'error');
+    }
+  };
+
+  const [deletingRequest, setDeletingRequest] = useState(null);
+
+  const handleDeleteRequest = async (req) => {
+    try {
+      await deleteMaintenanceRequest(req.id, userId);
+      showToast('Maintenance request deleted 🗑️');
+      refreshStorageUsage();
+      setDeletingRequest(null);
+      refresh();
+    } catch (err) {
+      console.error('Delete maintenance error:', err);
+      showToast(err.message || 'Failed to delete request', 'error');
+    }
+  };
+
   const statusConfig = {
     open: { icon: <AlertTriangle size={16} />, badge: 'badge-warning', label: 'Open' },
     'in-progress': { icon: <Clock size={16} />, badge: 'badge-primary', label: 'In Progress' },
@@ -121,6 +185,8 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
   const openCount = requests.filter(r => r.status === 'open').length;
   const inProgressCount = requests.filter(r => r.status === 'in-progress').length;
   const resolvedCount = requests.filter(r => r.status === 'resolved').length;
+
+  if (loading) return <CardListSkeleton cards={3} showStats statsCount={3} />;
 
   return (
     <div>
@@ -197,16 +263,35 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: 'var(--gray-400)' }}>
-                    <span>📍 {property?.address?.substring(0, 30)}</span>
+                    <span>📍 {(property?.name || property?.address)?.substring(0, 30) || 'Unknown'}</span>
                     <span>👤 {tenant?.name || 'N/A'}</span>
                     <span>📅 {new Date(req.createdAt).toLocaleDateString('en-IN')}</span>
                   </div>
                   <div className="action-buttons">
+                    {isSupabaseConfigured() && !req.photoUrl && (
+                      <button className="btn btn-sm btn-secondary" title="Attach Photo"
+                        onClick={() => {
+                          setQuickUploadTarget(req.id);
+                          setTimeout(() => quickUploadRef.current?.click(), 0);
+                        }}
+                        style={{ position: 'relative' }}
+                      >
+                        <Camera size={14} />
+                      </button>
+                    )}
+                    {req.photoUrl && (
+                      <span title="Photo attached" style={{ fontSize: '0.8rem', cursor: 'default' }}>📸</span>
+                    )}
                     <button className="btn btn-sm btn-secondary" onClick={() => setViewRequest(req)} title="View Details">
                       <Eye size={14} />
                     </button>
                     <button className="btn btn-sm btn-secondary" onClick={() => openEditModal(req)} title="Edit">
                       <Pencil size={14} />
+                    </button>
+                    <button className="btn btn-sm" onClick={() => setDeletingRequest(req)}
+                      style={{ background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                      title="Delete">
+                      <Trash2 size={14} />
                     </button>
                     {req.status === 'open' && (
                       <button className="btn btn-sm btn-primary" onClick={() => updateStatus(req.id, 'in-progress')}>
@@ -227,6 +312,21 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
             );
           })}
         </div>
+        {/* Hidden file input for quick photo upload from card */}
+        <input
+          type="file"
+          ref={quickUploadRef}
+          accept="image/jpeg,image/png,image/webp"
+          style={{ display: 'none' }}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file && quickUploadTarget) {
+              handleQuickPhotoUpload(file, quickUploadTarget);
+            }
+            e.target.value = '';
+            setQuickUploadTarget(null);
+          }}
+        />
         <Pagination
           totalItems={filteredRequests.length}
           currentPage={currentPage}
@@ -250,7 +350,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                 <select className="form-select" value={form.propertyId}
                   onChange={e => handlePropertyChange(e.target.value)}>
                   <option value="">Select property</option>
-                  {properties.map(p => <option key={p.id} value={p.id}>{p.address}</option>)}
+                  {properties.map(p => <option key={p.id} value={p.id}>{p.name ? `${p.name} — ${p.address}` : p.address}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -284,22 +384,92 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                     onUpload={async (file) => {
                       const { allowed, message: limitMsg } = checkLimit('attachmentsMB', 0);
                       if (!allowed) { setUpgradeMsg(limitMsg); return; }
+                      // Always delete old photo from storage before uploading new one
+                      await deleteAttachmentsForEntity(userId, 'maintenance', editingRequest.id);
                       const url = await uploadAttachment(file, userId, 'maintenance', editingRequest.id, 'photo');
                       await updateMaintenanceRequest(editingRequest.id, { photo_url: url }, userId);
                       setEditingRequest(prev => ({ ...prev, photoUrl: url }));
                       showToast('Photo uploaded ✅');
+                      refreshStorageUsage();
                     }}
                     onRemove={async () => {
+                      // Delete photo from storage + attachments table
+                      await deleteAttachmentsForEntity(userId, 'maintenance', editingRequest.id);
                       await updateMaintenanceRequest(editingRequest.id, { photo_url: '' }, userId);
                       setEditingRequest(prev => ({ ...prev, photoUrl: '' }));
                       showToast('Photo removed');
+                      refreshStorageUsage();
                     }}
                   />
                 </div>
               )}
+              {!editingRequest && isSupabaseConfigured() && (
+                <div className="form-group">
+                  <label className="form-label">Photo of Issue (optional)</label>
+                  <input
+                    type="file"
+                    ref={newPhotoRef}
+                    accept="image/jpeg,image/png,image/webp"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      if (file.size > 5 * 1024 * 1024) {
+                        showToast('Photo must be under 5MB', 'error');
+                        e.target.value = '';
+                        return;
+                      }
+                      const { allowed, message: limitMsg } = checkLimit('attachmentsMB', 0);
+                      if (!allowed) { setUpgradeMsg(limitMsg); e.target.value = ''; return; }
+                      setPendingPhoto(file);
+                      setPendingPhotoPreview(URL.createObjectURL(file));
+                    }}
+                    style={{ display: 'none' }}
+                  />
+                  {pendingPhotoPreview ? (
+                    <div style={{
+                      display: 'flex', alignItems: 'center', gap: '12px',
+                      padding: '12px', background: '#f0fdf4', borderRadius: '10px',
+                      border: '1px solid #bbf7d0',
+                    }}>
+                      <img src={pendingPhotoPreview} alt="Preview"
+                        style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid #d1d5db' }} />
+                      <div style={{ flex: 1 }}>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#16a34a' }}>📸 Photo attached</div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>{pendingPhoto?.name}</div>
+                      </div>
+                      <button type="button" className="btn btn-sm" onClick={() => {
+                        setPendingPhoto(null);
+                        setPendingPhotoPreview(null);
+                        if (newPhotoRef.current) newPhotoRef.current.value = '';
+                      }} style={{ color: '#dc2626', background: 'none', border: 'none', cursor: 'pointer', padding: '4px' }}>
+                        <X size={16} />
+                      </button>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => newPhotoRef.current?.click()}
+                      style={{
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        gap: '8px', padding: '16px', borderRadius: '10px',
+                        border: '2px dashed #cbd5e1', cursor: 'pointer',
+                        background: '#f8fafc', transition: 'all 0.2s',
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.borderColor = '#6366f1'; e.currentTarget.style.background = '#eef2ff'; }}
+                      onMouseLeave={e => { e.currentTarget.style.borderColor = '#cbd5e1'; e.currentTarget.style.background = '#f8fafc'; }}
+                    >
+                      <Upload size={18} style={{ color: 'var(--gray-400)' }} />
+                      <span style={{ fontSize: '0.85rem', color: 'var(--gray-500)' }}>
+                        Click to attach a photo (JPG/PNG, max 5MB)
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingRequest ? 'Update Request' : 'Submit Request'}</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? '⏳ Saving...' : editingRequest ? 'Update Request' : 'Submit Request'}
+                </button>
               </div>
             </form>
           </div>
@@ -330,7 +500,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Property</span>
-                    <span className="detail-value">{property?.address || '—'}</span>
+                    <span className="detail-value">{property?.name || property?.address || '—'}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Tenant</span>
@@ -379,7 +549,52 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                   <button className="btn btn-secondary" onClick={() => { setViewRequest(null); openEditModal(viewRequest); }}>
                     <Pencil size={14} /> Edit
                   </button>
+                  <button className="btn" onClick={() => { setViewRequest(null); setDeletingRequest(viewRequest); }}
+                    style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '8px', padding: '8px 16px', cursor: 'pointer', fontWeight: 600 }}>
+                    <Trash2 size={14} /> Delete
+                  </button>
                   <button className="btn btn-secondary" onClick={() => setViewRequest(null)}>Close</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Delete Maintenance Request Confirmation Modal */}
+      {deletingRequest && (() => {
+        const property = properties.find(p => p.id === deletingRequest.propertyId);
+        const tenant = tenants.find(t => t.id === deletingRequest.tenantId);
+        return (
+          <div className="modal-overlay" onClick={() => setDeletingRequest(null)}>
+            <div className="modal" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 style={{ color: '#dc2626' }}><Trash2 size={20} /> Delete Request</h3>
+                <button className="modal-close" onClick={() => setDeletingRequest(null)}>✕</button>
+              </div>
+              <div>
+                <div style={{ padding: '16px', background: '#fef2f2', borderRadius: '10px', marginBottom: '16px', border: '1px solid #fecaca' }}>
+                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#991b1b' }}>
+                    Are you sure you want to delete this maintenance request? This action cannot be undone.
+                  </p>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--gray-50)', borderRadius: '10px', marginBottom: '16px' }}>
+                  <div style={{ fontWeight: 700 }}>{deletingRequest.title}</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '4px' }}>
+                    📍 {property?.name || property?.address || 'Unknown'} · 👤 {tenant?.name || 'N/A'}
+                  </div>
+                  {deletingRequest.photoUrl && (
+                    <div style={{ fontSize: '0.8rem', color: '#d97706', marginTop: '6px' }}>
+                      ⚠️ Associated photo attachment will also be deleted
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setDeletingRequest(null)}>Cancel</button>
+                  <button type="button" className="btn" onClick={() => handleDeleteRequest(deletingRequest)}
+                    style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}>
+                    <Trash2 size={14} /> Delete Request
+                  </button>
                 </div>
               </div>
             </div>

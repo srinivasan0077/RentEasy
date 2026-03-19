@@ -1,14 +1,22 @@
-import { useState, useEffect } from 'react';
-import { Plus, Users, Phone, Mail, Search, Trash2, Pencil, Eye } from 'lucide-react';
-import { getTenants, addTenant, deleteTenant, updateTenant, getProperties, uploadAttachment } from '../store';
+import { useState, useEffect, useRef } from 'react';
+import { Plus, Users, Phone, Mail, Search, Trash2, Pencil, Eye, Upload } from 'lucide-react';
+import { getTenants, addTenant, deleteTenant, updateTenant, getProperties, uploadAttachment, deleteAttachmentsForEntity } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
+import { CardListSkeleton } from '../components/SkeletonLoader';
+
+const formatDate = (dateStr) => {
+  if (!dateStr) return 'N/A';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
 
 export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) {
-  const { user, checkLimit, currentPlan } = useAuth();
+  const { user, checkLimit, currentPlan, refreshStorageUsage } = useAuth();
   const userId = user?.id;
   const [showModal, setShowModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState(null);
@@ -17,12 +25,13 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [form, setForm] = useState({
     name: '', phone: '', email: '', aadhaar: '', pan: '',
-    propertyId: '', moveInDate: '', leaseEnd: '',
+    propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '',
     emergencyContact: '', emergencyName: '',
   });
   const [tenants, setTenants] = useState([]);
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -46,10 +55,12 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     if (!form.name || !form.phone || !form.propertyId) {
       showToast('Please fill name, phone, and property', 'error');
       return;
     }
+    setSubmitting(true);
     try {
       if (editingTenant) {
         await updateTenant(editingTenant.id, {
@@ -59,6 +70,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
           aadhaar: form.aadhaar,
           pan: form.pan,
           property_id: form.propertyId,
+          unit_number: form.unitNumber || '',
           move_in_date: form.moveInDate || null,
           lease_end: form.leaseEnd || null,
           emergency_name: form.emergencyName,
@@ -74,13 +86,16 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
     } catch (err) {
       console.error('Save tenant error:', err);
       showToast(err.message || 'Failed to save tenant', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
   const resetForm = () => {
-    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
+    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
     setShowModal(false);
     setEditingTenant(null);
+    setSubmitting(false);
   };
 
   const openEditModal = (tenant) => {
@@ -92,6 +107,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
       aadhaar: tenant.aadhaar || '',
       pan: tenant.pan || '',
       propertyId: tenant.propertyId || '',
+      unitNumber: tenant.unitNumber || '',
       moveInDate: tenant.moveInDate || '',
       leaseEnd: tenant.leaseEnd || '',
       emergencyContact: tenant.emergencyContact || '',
@@ -107,29 +123,73 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
       return;
     }
     setEditingTenant(null);
-    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
+    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
     setShowModal(true);
   };
 
-  const handleDelete = async (id) => {
-    if (confirm('Are you sure you want to remove this tenant?')) {
-      try {
-        await deleteTenant(id, userId);
-        showToast('Tenant removed');
-        refresh();
-      } catch (err) {
-        console.error('Delete tenant error:', err);
-        showToast(err.message || 'Failed to remove tenant', 'error');
-      }
+  const [deletingTenant, setDeletingTenant] = useState(null);
+
+  const handleDelete = async (tenant) => {
+    try {
+      await deleteTenant(tenant.id, userId);
+      showToast('Tenant removed 🗑️');
+      setDeletingTenant(null);
+      refreshStorageUsage();
+      refresh();
+    } catch (err) {
+      console.error('Delete tenant error:', err);
+      showToast(err.message || 'Failed to remove tenant', 'error');
     }
   };
 
+  const getPropertyLabel = (propId) => {
+    const prop = properties.find(p => p.id === propId);
+    if (!prop) return 'Unassigned';
+    return prop.name || prop.address;
+  };
   const getPropertyAddress = (propId) => {
     const prop = properties.find(p => p.id === propId);
     return prop ? prop.address : 'Unassigned';
   };
 
-  const availableProperties = properties.filter(p => !tenants.some(t => t.propertyId === p.id));
+  // Quick upload from list view
+  const quickFileRef = useRef(null);
+  const [quickUploadTarget, setQuickUploadTarget] = useState(null); // { tenantId, docType }
+
+  const triggerQuickUpload = (tenantId, docType) => {
+    if (!isSupabaseConfigured()) {
+      showToast('File upload requires Supabase connection', 'error');
+      return;
+    }
+    const { allowed, message } = checkLimit('attachmentsMB', 0);
+    if (!allowed) { setUpgradeMsg(message); return; }
+    setQuickUploadTarget({ tenantId, docType });
+    // Small delay to ensure state is set before triggering click
+    setTimeout(() => quickFileRef.current?.click(), 50);
+  };
+
+  const handleQuickUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !quickUploadTarget) return;
+    const { tenantId, docType } = quickUploadTarget;
+    try {
+      // Delete old attachment (file + DB row) before uploading new one
+      await deleteAttachmentsForEntity(userId, 'tenant', tenantId, docType);
+      const url = await uploadAttachment(file, userId, 'tenant', tenantId, docType);
+      const updateField = docType === 'aadhaar' ? 'aadhaar_url' : 'pan_url';
+      await updateTenant(tenantId, { [updateField]: url }, userId);
+      showToast(`${docType === 'aadhaar' ? 'Aadhaar' : 'PAN'} uploaded ✅`);
+      refreshStorageUsage();
+      refresh();
+    } catch (err) {
+      console.error('Quick upload error:', err);
+      showToast(err.message || 'Upload failed', 'error');
+    }
+    setQuickUploadTarget(null);
+    if (quickFileRef.current) quickFileRef.current.value = '';
+  };
+
+  if (loading) return <CardListSkeleton cards={4} />;
 
   return (
     <div>
@@ -196,16 +256,51 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                       </div>
                     </td>
                     <td style={{ fontSize: '0.85rem', maxWidth: '200px' }}>
-                      {getPropertyAddress(tenant.propertyId).substring(0, 35)}...
+                      {(() => { const label = getPropertyLabel(tenant.propertyId); return label.length > 35 ? label.substring(0, 35) + '...' : label; })()}
+                      {tenant.unitNumber && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--primary)', fontWeight: 600, marginTop: '2px' }}>
+                          📍 {tenant.unitNumber}
+                        </div>
+                      )}
                     </td>
                     <td>
-                      <div style={{ fontSize: '0.85rem' }}>{tenant.moveInDate || 'N/A'}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>to {tenant.leaseEnd || 'N/A'}</div>
+                      <div style={{ fontSize: '0.85rem' }}>{formatDate(tenant.moveInDate)}</div>
+                      <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>to {formatDate(tenant.leaseEnd)}</div>
                     </td>
                     <td>
-                      <div style={{ fontSize: '0.8rem' }}>
-                        {tenant.aadhaar && <span className="badge badge-primary" style={{ marginRight: '4px' }}>Aadhaar</span>}
-                        {tenant.pan && <span className="badge badge-primary">PAN</span>}
+                      <div style={{ fontSize: '0.8rem', display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                        {tenant.aadhaarUrl ? (
+                          <a href={tenant.aadhaarUrl} target="_blank" rel="noopener noreferrer"
+                            className="badge badge-primary" style={{ cursor: 'pointer', textDecoration: 'none' }}
+                            title="View Aadhaar document">
+                            📄 Aadhaar
+                          </a>
+                        ) : (
+                          <span className="badge" style={{
+                            cursor: 'pointer', background: 'var(--gray-100)', color: 'var(--gray-500)',
+                            border: '1px dashed var(--gray-300)', display: 'flex', alignItems: 'center', gap: '3px',
+                          }}
+                            onClick={() => triggerQuickUpload(tenant.id, 'aadhaar')}
+                            title="Click to upload Aadhaar">
+                            <Upload size={10} /> Aadhaar
+                          </span>
+                        )}
+                        {tenant.panUrl ? (
+                          <a href={tenant.panUrl} target="_blank" rel="noopener noreferrer"
+                            className="badge badge-primary" style={{ cursor: 'pointer', textDecoration: 'none' }}
+                            title="View PAN document">
+                            📄 PAN
+                          </a>
+                        ) : (
+                          <span className="badge" style={{
+                            cursor: 'pointer', background: 'var(--gray-100)', color: 'var(--gray-500)',
+                            border: '1px dashed var(--gray-300)', display: 'flex', alignItems: 'center', gap: '3px',
+                          }}
+                            onClick={() => triggerQuickUpload(tenant.id, 'pan')}
+                            title="Click to upload PAN">
+                            <Upload size={10} /> PAN
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td>
@@ -216,7 +311,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                         <button className="btn btn-icon btn-sm btn-secondary" onClick={() => openEditModal(tenant)} title="Edit">
                           <Pencil size={14} />
                         </button>
-                        <button className="btn btn-icon btn-sm btn-danger" onClick={() => handleDelete(tenant.id)} title="Delete">
+                        <button className="btn btn-icon btn-sm btn-danger" onClick={() => setDeletingTenant(tenant)} title="Delete">
                           <Trash2 size={14} />
                         </button>
                       </div>
@@ -266,16 +361,27 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                 <select className="form-select" value={form.propertyId}
                   onChange={e => setForm({ ...form, propertyId: e.target.value })}>
                   <option value="">Select a property</option>
-                  {availableProperties.map(p => (
-                    <option key={p.id} value={p.id}>{p.address} ({p.type})</option>
-                  ))}
-                  {properties.filter(p => tenants.some(t => t.propertyId === p.id)).map(p => (
-                    <option key={p.id} value={p.id}>{p.address} ({p.type}) - Currently Occupied</option>
-                  ))}
-                  {editingTenant && !properties.some(p => p.id === form.propertyId) && form.propertyId && (
-                    <option value={form.propertyId}>Current Property</option>
-                  )}
+                  {properties.map(p => {
+                    const occupantCount = tenants.filter(t => t.propertyId === p.id && (!editingTenant || t.id !== editingTenant.id)).length;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name ? `${p.name} — ${p.address}` : p.address} ({p.type}){occupantCount > 0 ? ` — ${occupantCount} tenant${occupantCount > 1 ? 's' : ''}` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
+                <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: '4px' }}>
+                  💡 A property can have multiple tenants (e.g. different floors/rooms)
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Unit / Floor / Room (optional)</label>
+                <input className="form-input" value={form.unitNumber}
+                  onChange={e => setForm({ ...form, unitNumber: e.target.value })}
+                  placeholder="e.g. Floor 1, Room 2A, Ground Floor" />
+                <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: '4px' }}>
+                  Helps identify the exact portion rented — appears in agreements & receipts
+                </div>
               </div>
               <div className="form-row">
                 <div className="form-group">
@@ -299,15 +405,19 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                       onUpload={async (file) => {
                         const { allowed, message } = checkLimit('attachmentsMB', 0);
                         if (!allowed) { setUpgradeMsg(message); return; }
+                        await deleteAttachmentsForEntity(userId, 'tenant', editingTenant.id, 'aadhaar');
                         const url = await uploadAttachment(file, userId, 'tenant', editingTenant.id, 'aadhaar');
                         await updateTenant(editingTenant.id, { aadhaar_url: url }, userId);
                         setEditingTenant(prev => ({ ...prev, aadhaarUrl: url }));
                         showToast('Aadhaar uploaded ✅');
+                        refreshStorageUsage();
                       }}
                       onRemove={async () => {
+                        await deleteAttachmentsForEntity(userId, 'tenant', editingTenant.id, 'aadhaar');
                         await updateTenant(editingTenant.id, { aadhaar_url: '' }, userId);
                         setEditingTenant(prev => ({ ...prev, aadhaarUrl: '' }));
                         showToast('Aadhaar removed');
+                        refreshStorageUsage();
                       }}
                     />
                   </div>
@@ -318,15 +428,19 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                       onUpload={async (file) => {
                         const { allowed, message } = checkLimit('attachmentsMB', 0);
                         if (!allowed) { setUpgradeMsg(message); return; }
+                        await deleteAttachmentsForEntity(userId, 'tenant', editingTenant.id, 'pan');
                         const url = await uploadAttachment(file, userId, 'tenant', editingTenant.id, 'pan');
                         await updateTenant(editingTenant.id, { pan_url: url }, userId);
                         setEditingTenant(prev => ({ ...prev, panUrl: url }));
                         showToast('PAN card uploaded ✅');
+                        refreshStorageUsage();
                       }}
                       onRemove={async () => {
+                        await deleteAttachmentsForEntity(userId, 'tenant', editingTenant.id, 'pan');
                         await updateTenant(editingTenant.id, { pan_url: '' }, userId);
                         setEditingTenant(prev => ({ ...prev, panUrl: '' }));
                         showToast('PAN card removed');
+                        refreshStorageUsage();
                       }}
                     />
                   </div>
@@ -368,7 +482,9 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={resetForm}>Cancel</button>
-                <button type="submit" className="btn btn-primary">{editingTenant ? 'Update Tenant' : 'Add Tenant'}</button>
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? '⏳ Saving...' : editingTenant ? 'Update Tenant' : 'Add Tenant'}
+                </button>
               </div>
             </form>
           </div>
@@ -388,7 +504,10 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                 <div className="detail-row"><span className="detail-label">Name</span><span className="detail-value" style={{ fontWeight: 600 }}>{viewTenant.name}</span></div>
                 <div className="detail-row"><span className="detail-label">Phone</span><span className="detail-value">{viewTenant.phone}</span></div>
                 <div className="detail-row"><span className="detail-label">Email</span><span className="detail-value">{viewTenant.email || '—'}</span></div>
-                <div className="detail-row"><span className="detail-label">Property</span><span className="detail-value">{getPropertyAddress(viewTenant.propertyId)}</span></div>
+                <div className="detail-row"><span className="detail-label">Property</span><span className="detail-value">{getPropertyLabel(viewTenant.propertyId)}</span></div>
+                {viewTenant.unitNumber && (
+                  <div className="detail-row"><span className="detail-label">Unit / Floor</span><span className="detail-value" style={{ color: 'var(--primary)', fontWeight: 600 }}>{viewTenant.unitNumber}</span></div>
+                )}
                 <div className="detail-row"><span className="detail-label">Aadhaar</span><span className="detail-value">
                   {viewTenant.aadhaar || '—'}
                   {viewTenant.aadhaarUrl && (
@@ -401,8 +520,8 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                     <a href={viewTenant.panUrl} target="_blank" rel="noopener noreferrer" style={{ marginLeft: '8px', fontSize: '0.8rem', color: 'var(--primary)' }}>📄 View Document</a>
                   )}
                 </span></div>
-                <div className="detail-row"><span className="detail-label">Move-in Date</span><span className="detail-value">{viewTenant.moveInDate || '—'}</span></div>
-                <div className="detail-row"><span className="detail-label">Lease End</span><span className="detail-value">{viewTenant.leaseEnd || '—'}</span></div>
+                <div className="detail-row"><span className="detail-label">Move-in Date</span><span className="detail-value">{formatDate(viewTenant.moveInDate) || '—'}</span></div>
+                <div className="detail-row"><span className="detail-label">Lease End</span><span className="detail-value">{formatDate(viewTenant.leaseEnd) || '—'}</span></div>
                 <div className="detail-row"><span className="detail-label">Emergency Contact</span><span className="detail-value">{viewTenant.emergencyName || '—'} ({viewTenant.emergencyContact || '—'})</span></div>
               </div>
               <div className="modal-footer">
@@ -416,12 +535,62 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
         </div>
       )}
 
+      {/* Delete Tenant Confirmation Modal */}
+      {deletingTenant && (
+        <div className="modal-overlay" onClick={() => setDeletingTenant(null)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3 style={{ color: '#dc2626' }}><Trash2 size={20} /> Remove Tenant</h3>
+              <button className="modal-close" onClick={() => setDeletingTenant(null)}>✕</button>
+            </div>
+            <div>
+              <div style={{ padding: '16px', background: '#fef2f2', borderRadius: '10px', marginBottom: '16px', border: '1px solid #fecaca' }}>
+                <p style={{ margin: 0, fontSize: '0.9rem', color: '#991b1b' }}>
+                  Are you sure you want to remove this tenant? This action cannot be undone.
+                </p>
+              </div>
+              <div style={{ padding: '12px 16px', background: 'var(--gray-50)', borderRadius: '10px', marginBottom: '16px' }}>
+                <div style={{ fontWeight: 700, marginBottom: '4px' }}>{deletingTenant.name}</div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)' }}>
+                  {deletingTenant.phone} {deletingTenant.email ? `· ${deletingTenant.email}` : ''}
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '2px' }}>
+                  📍 {getPropertyLabel(deletingTenant.propertyId)}
+                  {deletingTenant.unitNumber ? ` (${deletingTenant.unitNumber})` : ''}
+                </div>
+                {(deletingTenant.aadhaarUrl || deletingTenant.panUrl) && (
+                  <div style={{ fontSize: '0.8rem', color: '#d97706', marginTop: '8px', padding: '8px', background: '#fffbeb', borderRadius: '6px', border: '1px solid #fde68a' }}>
+                    ⚠️ Uploaded documents (Aadhaar{deletingTenant.panUrl ? ', PAN' : ''}) will also be permanently deleted
+                  </div>
+                )}
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn btn-secondary" onClick={() => setDeletingTenant(null)}>Cancel</button>
+                <button type="button" className="btn" onClick={() => handleDelete(deletingTenant)}
+                  style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}>
+                  <Trash2 size={14} /> Remove Tenant
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <UpgradeModal
         show={!!upgradeMsg}
         message={upgradeMsg}
         currentPlan={currentPlan}
         onClose={() => setUpgradeMsg('')}
         onUpgrade={() => onNavigate?.('license')}
+      />
+
+      {/* Hidden file input for quick uploads from list view */}
+      <input
+        type="file"
+        ref={quickFileRef}
+        style={{ display: 'none' }}
+        accept="image/*,.pdf"
+        onChange={handleQuickUpload}
       />
     </div>
   );

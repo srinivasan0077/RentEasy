@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { FileText, Download, Plus, Info, AlertTriangle } from 'lucide-react';
-import { getTenants, getProperties, addAgreement, getAgreements } from '../store';
+import { FileText, Download, Plus, Info, AlertTriangle, ClipboardList } from 'lucide-react';
+import { getTenants, getProperties, addAgreement, getAgreements, getLandlordProfile, saveLandlordProfile, getRentDueDay } from '../store';
 import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
+import { FormSkeleton } from '../components/SkeletonLoader';
 import jsPDF from 'jspdf';
 
 // ===== STATE-WISE STAMP DUTY & REGISTRATION DATA =====
@@ -65,6 +66,7 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
   const [properties, setProperties] = useState([]);
   const [agreements, setAgreements] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
 
@@ -82,6 +84,42 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     }
     load();
   }, [userId, refreshKey]);
+
+  // Landlord profile auto-fill
+  const savedLandlord = getLandlordProfile(userId);
+  const hasLandlordProfile = savedLandlord && (savedLandlord.name || savedLandlord.pan);
+
+  const fillFromProfile = () => {
+    if (!savedLandlord) return;
+    setForm(prev => ({
+      ...prev,
+      ownerName: savedLandlord.name || prev.ownerName,
+      ownerPhone: savedLandlord.phone || prev.ownerPhone,
+      ownerPan: savedLandlord.pan || prev.ownerPan,
+      ownerAadhaar: savedLandlord.aadhaar || prev.ownerAadhaar,
+    }));
+    showToast('Landlord details filled from saved profile ✅');
+  };
+
+  // Offer to save landlord details after generating agreement
+  const maybeSaveLandlordProfile = () => {
+    if (form.ownerName && form.ownerPan) {
+      const current = getLandlordProfile(userId);
+      const changed = !current ||
+        current.name !== form.ownerName ||
+        current.phone !== form.ownerPhone ||
+        current.pan !== form.ownerPan ||
+        current.aadhaar !== form.ownerAadhaar;
+      if (changed) {
+        saveLandlordProfile({
+          name: form.ownerName,
+          phone: form.ownerPhone,
+          pan: form.ownerPan,
+          aadhaar: form.ownerAadhaar,
+        }, userId);
+      }
+    }
+  };
 
   const selectedTenant = tenants.find(t => t.id === form.tenantId);
   const selectedProperty = properties.find(p => p.id === form.propertyId);
@@ -125,6 +163,8 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
   };
 
   const generateAgreement = async () => {
+    if (submitting) return;
+
     // Check monthly limit
     const currentMonth = new Date().toISOString().slice(0, 7);
     const thisMonthCount = agreements.filter(a =>
@@ -180,6 +220,7 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
       }
     }
 
+    setSubmitting(true);
     try {
       await addAgreement({
         ...form,
@@ -188,11 +229,14 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
       }, userId);
 
       showToast('Agreement generated successfully!');
+      maybeSaveLandlordProfile();
       refresh();
       downloadAgreementPDF();
     } catch (err) {
       console.error('Generate agreement error:', err);
       showToast(err.message || 'Failed to generate agreement', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -212,6 +256,14 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
 
     const rentNum = Number(form.rentAmount);
     const depositNum = Number(form.deposit);
+
+    // Get customizable rent due day
+    const dueDay = getRentDueDay(userId);
+    const ordinal = (n) => {
+      const s = ['th','st','nd','rd'];
+      const v = n % 100;
+      return n + (s[(v - 20) % 10] || s[v] || s[0]);
+    };
 
     // Derive the agreement state from property (single source of truth)
     const agreementState = selectedProperty?.state || form.stampDutyState || '________';
@@ -403,8 +455,10 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     const addrText = selectedProperty?.address || '';
     const addrWrapped = doc.splitTextToSize(addrText, propValMaxW);
     const addrExtraLines = addrWrapped.length - 1;
+    const tenantUnit = selectedTenant?.unitNumber || selectedTenant?.unit_number || '';
+    const hasUnit = tenantUnit.trim().length > 0;
 
-    const propBoxH = 10 + (3 * 5.5) + (addrExtraLines * 4.5) + 6;
+    const propBoxH = 10 + (3 * 5.5) + (addrExtraLines * 4.5) + (hasUnit ? 5.5 : 0) + 6;
     doc.roundedRect(margin, propBoxY - 4, contentWidth, propBoxH, 2, 2, 'FD');
 
     // Add top padding inside box
@@ -421,6 +475,17 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
       doc.text(line, propTabX, y + (i * 4.5));
     });
     y += 5.5 + (addrExtraLines * 4.5);
+
+    // Unit / Floor row (only if specified)
+    if (hasUnit) {
+      doc.setFont('helvetica', 'bold');
+      doc.setTextColor(80, 80, 80);
+      doc.text('Unit / Floor:', margin + 4, y);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(40, 40, 40);
+      doc.text(tenantUnit, propTabX, y);
+      y += 5.5;
+    }
 
     // City row
     doc.setFont('helvetica', 'bold');
@@ -510,7 +575,7 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     const nextClause = () => ++clauseNum;
 
     writeClause(nextClause(), 'MONTHLY RENT',
-      `The monthly rent for the said premises shall be Rs. ${rentNum.toLocaleString('en-IN')}/- (Rupees ${numberToWords(rentNum)} only), payable on or before the 5th of every calendar month. Failure to pay rent on time shall attract a late fee of Rs. 50/- per day of delay.`
+      `The monthly rent for the said premises shall be Rs. ${rentNum.toLocaleString('en-IN')}/- (Rupees ${numberToWords(rentNum)} only), payable on or before the ${ordinal(dueDay)} of every calendar month. Failure to pay rent on time shall attract a late fee of Rs. 50/- per day of delay.`
     );
 
     writeClause(nextClause(), 'SECURITY DEPOSIT',
@@ -770,6 +835,8 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     showToast('Agreement PDF downloaded! 📄');
   };
 
+  if (loading) return <FormSkeleton />;
+
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
@@ -785,6 +852,32 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
       {showForm && (
         <div className="card" style={{ marginBottom: '24px' }}>
           <h3 style={{ marginBottom: '20px' }}>📝 Agreement Details</h3>
+
+          {/* Landlord Profile Auto-fill */}
+          {hasLandlordProfile && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '10px 16px', background: '#eef2ff', borderRadius: '10px',
+              border: '1px solid #c7d2fe', marginBottom: '16px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', color: '#4338ca' }}>
+                <ClipboardList size={16} />
+                <span>Saved landlord profile: <strong>{savedLandlord.name}</strong> ({savedLandlord.pan})</span>
+              </div>
+              <button
+                type="button"
+                className="btn btn-sm"
+                onClick={fillFromProfile}
+                style={{
+                  background: '#4f46e5', color: '#fff', border: 'none',
+                  padding: '6px 14px', borderRadius: '6px', fontSize: '0.8rem',
+                  cursor: 'pointer', fontWeight: 600,
+                }}
+              >
+                📋 Use Saved Details
+              </button>
+            </div>
+          )}
 
           <div className="form-row">
             <div className="form-group">
@@ -871,13 +964,13 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
 
               <div className="form-group">
                 <label className="form-label">Annual Rent Escalation (%)</label>
-                <select className="form-select" value={form.escalation}
-                  onChange={e => setForm({ ...form, escalation: e.target.value })}>
-                  <option value="0">0%</option>
-                  <option value="5">5%</option>
-                  <option value="8">8%</option>
-                  <option value="10">10%</option>
-                </select>
+                <input className="form-input" type="number" min="0" max="100" step="1"
+                  value={form.escalation}
+                  onChange={e => {
+                    const val = Math.max(0, Math.min(100, Number(e.target.value) || 0));
+                    setForm({ ...form, escalation: String(val) });
+                  }}
+                  placeholder="e.g. 5" />
               </div>
 
               <div className="form-row">
@@ -1006,8 +1099,8 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
               )}
 
               <div style={{ display: 'flex', gap: '12px' }}>
-                <button className="btn btn-primary" onClick={generateAgreement}>
-                  <FileText size={18} /> Generate & Download PDF
+                <button className="btn btn-primary" onClick={generateAgreement} disabled={submitting}>
+                  <FileText size={18} /> {submitting ? '⏳ Generating...' : 'Generate & Download PDF'}
                 </button>
               </div>
             </>

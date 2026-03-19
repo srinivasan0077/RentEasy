@@ -1,14 +1,15 @@
-import { useState, useEffect } from 'react';
-import { Search, CheckCircle, MessageCircle, Filter, Plus, IndianRupee, Pencil, Zap, CalendarPlus, Upload, Image, ChevronLeft, ChevronRight, Users, AlertTriangle, Clock, LayoutGrid, List, Send } from 'lucide-react';
-import { getPayments, updatePayment, addPayment, getTenants, getProperties, uploadAttachment } from '../store';
+import { useState, useEffect, useRef } from 'react';
+import { Search, CheckCircle, MessageCircle, Filter, Plus, IndianRupee, Pencil, Zap, CalendarPlus, Upload, Image, ChevronLeft, ChevronRight, Users, AlertTriangle, Clock, LayoutGrid, List, Send, Trash2, Camera } from 'lucide-react';
+import { getPayments, updatePayment, addPayment, deletePayment, getTenants, getProperties, uploadAttachment, getRentDueDay, deleteAttachmentsForEntity } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
 import Pagination from '../components/Pagination';
 import FileUpload from '../components/FileUpload';
 import UpgradeModal from '../components/UpgradeModal';
+import { TableSkeleton } from '../components/SkeletonLoader';
 
 export default function Payments({ showToast, refresh, refreshKey, onNavigate }) {
-  const { user, checkLimit, currentPlan } = useAuth();
+  const { user, checkLimit, currentPlan, refreshStorageUsage } = useAuth();
   const userId = user?.id;
   const [filter, setFilter] = useState('all');
   const [search, setSearch] = useState('');
@@ -19,6 +20,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   const [tenants, setTenants] = useState([]);
   const [properties, setProperties] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
@@ -42,21 +44,28 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
         getTenants(userId),
         getProperties(userId),
       ]);
-      // Auto-overdue: mark pending payments past 5th of the month as overdue
+      // Auto-overdue: sync payment statuses based on customizable due day
       const today = new Date();
+      const dueDay = getRentDueDay(userId);
       const autoUpdated = [];
       for (const payment of pay) {
-        if (payment.status === 'pending' && payment.month) {
+        if (payment.month) {
           const [year, month] = payment.month.split('-').map(Number);
-          const dueDate = new Date(year, month - 1, 5);
-          if (today > dueDate) {
+          const dueDate = new Date(year, month - 1, dueDay);
+          // pending → overdue: due date has passed
+          if (payment.status === 'pending' && today > dueDate) {
             payment.status = 'overdue';
+            autoUpdated.push(payment);
+          }
+          // overdue → pending: due date hasn't passed yet (landlord changed due day)
+          if (payment.status === 'overdue' && today <= dueDate) {
+            payment.status = 'pending';
             autoUpdated.push(payment);
           }
         }
       }
       for (const payment of autoUpdated) {
-        try { await updatePayment(payment.id, { status: 'overdue' }, userId); } catch {}
+        try { await updatePayment(payment.id, { status: payment.status }, userId); } catch {}
       }
       setPayments(pay);
       setTenants(t);
@@ -81,10 +90,12 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
 
   const handleAddPayment = async (e) => {
     e.preventDefault();
+    if (submitting) return;
     if (!payForm.tenantId || !payForm.amount || !payForm.month) {
       showToast('Please select tenant, enter amount, and month', 'error');
       return;
     }
+    setSubmitting(true);
     try {
       if (editingPayment) {
         await updatePayment(editingPayment.id, {
@@ -112,6 +123,8 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
     } catch (err) {
       console.error('Save payment error:', err);
       showToast(err.message || 'Failed to save payment', 'error');
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -119,6 +132,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
     setPayForm({ tenantId: '', propertyId: '', amount: '', month: currentMonth, status: 'pending', method: '', notes: '' });
     setShowModal(false);
     setEditingPayment(null);
+    setSubmitting(false);
   };
 
   const openEditPayment = (payment) => {
@@ -387,10 +401,53 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
     }
   };
 
+  const [deletingPayment, setDeletingPayment] = useState(null); // payment pending delete confirmation
+
+  const handleDeletePayment = async (payment) => {
+    try {
+      await deletePayment(payment.id, userId);
+      showToast('Payment deleted 🗑️');
+      refreshStorageUsage();
+      setDeletingPayment(null);
+      refresh();
+    } catch (err) {
+      console.error('Delete payment error:', err);
+      showToast(err.message || 'Failed to delete payment', 'error');
+    }
+  };
+
+  // Quick screenshot upload from card
+  const screenshotUploadRef = useRef(null);
+  const [screenshotUploadTarget, setScreenshotUploadTarget] = useState(null);
+
+  const handleQuickScreenshotUpload = async (file, paymentId) => {
+    if (!file || !paymentId) return;
+    if (file.size > 5 * 1024 * 1024) {
+      showToast('Screenshot must be under 5MB', 'error');
+      return;
+    }
+    const { allowed, message: limitMsg } = checkLimit('attachmentsMB', 0);
+    if (!allowed) { setUpgradeMsg(limitMsg); return; }
+    try {
+      // Delete old screenshot (file + DB row) before uploading new one
+      await deleteAttachmentsForEntity(userId, 'payment', paymentId);
+      const url = await uploadAttachment(file, userId, 'payment', paymentId, 'screenshot');
+      await updatePayment(paymentId, { screenshotUrl: url }, userId);
+      showToast('Payment screenshot uploaded! 📸');
+      refreshStorageUsage();
+      refresh();
+    } catch (err) {
+      console.error('Screenshot upload failed:', err);
+      showToast(err.message || 'Screenshot upload failed', 'error');
+    }
+  };
+
   const sendReminder = (payment) => {
     const tenant = tenants.find(t => t.id === payment.tenantId);
     const property = properties.find(p => p.id === payment.propertyId);
-    const message = `Hi ${tenant?.name}, this is a friendly reminder that your rent of ₹${Number(payment.amount).toLocaleString('en-IN')} for ${property?.address} is due for ${payment.month}. Please pay at your earliest convenience. - RentEasy`;
+    const dueDay = currentDueDay;
+    const ordinal = (n) => { const s = ['th','st','nd','rd']; const v = n % 100; return n + (s[(v-20)%10] || s[v] || s[0]); };
+    const message = `Hi ${tenant?.name}, this is a friendly reminder that your rent of ₹${Number(payment.amount).toLocaleString('en-IN')} for ${property?.name || property?.address || 'your property'} is due for ${payment.month} (by the ${ordinal(dueDay)}). Please pay at your earliest convenience. - RentEasy`;
 
     // Open WhatsApp with pre-filled message
     const whatsappUrl = `https://wa.me/91${tenant?.phone}?text=${encodeURIComponent(message)}`;
@@ -403,13 +460,25 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   const pendingCount = payments.filter(p => p.status === 'pending').length;
   const overdueCount = payments.filter(p => p.status === 'overdue').length;
   const paidCount = payments.filter(p => p.status === 'paid').length;
+  const currentDueDay = getRentDueDay(userId);
+
+  if (loading) return <TableSkeleton rows={5} />;
 
   return (
     <div>
       <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start' }}>
         <div>
           <h2>Rent Payments</h2>
-          <p>Track and manage rent payments from all tenants</p>
+          <p>Track and manage rent payments from all tenants
+            <span style={{
+              marginLeft: '10px', padding: '2px 8px', borderRadius: '6px',
+              background: '#f0f9ff', color: '#0369a1', fontSize: '0.75rem',
+              fontWeight: 600, border: '1px solid #bae6fd', cursor: 'pointer',
+            }} onClick={() => onNavigate && onNavigate('landlord-profile')}
+              title="Change in Landlord Profile">
+              ⏰ Due by {currentDueDay}{currentDueDay === 1 ? 'st' : currentDueDay === 2 ? 'nd' : currentDueDay === 3 ? 'rd' : 'th'} of month
+            </span>
+          </p>
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button className="btn btn-secondary" onClick={openBulkModal} title="Generate payment entries for all tenants in one click">
@@ -581,7 +650,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                         {tenant.name}
                       </div>
                       <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)', marginTop: '2px' }}>
-                        {property?.address?.substring(0, 35) || 'No property'}
+                        {(property?.name || property?.address)?.substring(0, 35) || 'No property'}
                       </div>
                     </div>
                     <span style={{
@@ -614,6 +683,26 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                             <Image size={14} style={{ color: 'var(--primary)', verticalAlign: 'middle' }} />
                           </a>
                         )}
+                        {isSupabaseConfigured() && !payment?.screenshotUrl && (
+                          <button className="btn btn-sm" onClick={() => {
+                            setScreenshotUploadTarget(payment.id);
+                            setTimeout(() => screenshotUploadRef.current?.click(), 0);
+                          }}
+                            style={{ marginLeft: '4px', fontSize: '0.78rem', background: '#dbeafe', color: '#2563eb', border: 'none', borderRadius: '8px', padding: '4px 8px', cursor: 'pointer' }}
+                            title="Attach payment screenshot">
+                            <Camera size={12} />
+                          </button>
+                        )}
+                        <button className="btn btn-sm" onClick={() => openEditPayment(payment)}
+                          style={{ marginLeft: '4px', fontSize: '0.78rem', background: 'var(--gray-100)', color: 'var(--gray-500)', border: 'none', borderRadius: '8px', padding: '4px 8px', cursor: 'pointer' }}
+                          title="Edit payment details">
+                          <Pencil size={12} />
+                        </button>
+                        <button className="btn btn-sm" onClick={() => setDeletingPayment(payment)}
+                          style={{ fontSize: '0.78rem', background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '4px 8px', cursor: 'pointer' }}
+                          title="Delete payment">
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     ) : status === 'no-entry' ? (
                       <button className="btn btn-sm btn-primary" onClick={async () => {
@@ -649,6 +738,31 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                         <button className="btn btn-sm btn-secondary" onClick={() => sendReminder(payment)} style={{ fontSize: '0.82rem' }}>
                           <MessageCircle size={14} />
                         </button>
+                        {isSupabaseConfigured() && !payment?.screenshotUrl && (
+                          <button className="btn btn-sm" onClick={() => {
+                            setScreenshotUploadTarget(payment.id);
+                            setTimeout(() => screenshotUploadRef.current?.click(), 0);
+                          }}
+                            style={{ fontSize: '0.78rem', background: '#dbeafe', color: '#2563eb', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                            title="Attach payment screenshot">
+                            <Camera size={13} />
+                          </button>
+                        )}
+                        {payment?.screenshotUrl && (
+                          <a href={payment.screenshotUrl} target="_blank" rel="noopener noreferrer" title="View proof">
+                            <Image size={14} style={{ color: 'var(--primary)', verticalAlign: 'middle' }} />
+                          </a>
+                        )}
+                        <button className="btn btn-sm" onClick={() => openEditPayment(payment)}
+                          style={{ fontSize: '0.82rem', background: 'var(--gray-100)', color: 'var(--gray-500)', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                          title="Edit payment details">
+                          <Pencil size={12} />
+                        </button>
+                        <button className="btn btn-sm" onClick={() => setDeletingPayment(payment)}
+                          style={{ fontSize: '0.78rem', background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                          title="Delete payment">
+                          <Trash2 size={12} />
+                        </button>
                       </>
                     )}
                   </div>
@@ -658,6 +772,22 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
           )}
         </div>
       )}
+
+      {/* Hidden file input for quick screenshot upload from card */}
+      <input
+        type="file"
+        ref={screenshotUploadRef}
+        accept="image/jpeg,image/png,image/webp"
+        style={{ display: 'none' }}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file && screenshotUploadTarget) {
+            handleQuickScreenshotUpload(file, screenshotUploadTarget);
+          }
+          e.target.value = '';
+          setScreenshotUploadTarget(null);
+        }}
+      />
 
       {/* ===== DETAILED TABLE VIEW ===== */}
       {viewMode === 'table' && (
@@ -704,7 +834,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                         <tr key={payment.id}>
                           <td style={{ fontWeight: 600 }}>{tenant?.name || 'Unknown'}</td>
                           <td style={{ fontSize: '0.85rem', maxWidth: '180px' }}>
-                            {property?.address?.substring(0, 30) || 'Unknown'}
+                            {(property?.name || property?.address)?.substring(0, 30) || 'Unknown'}
                           </td>
                           <td>{payment.month}</td>
                           <td style={{ fontWeight: 700 }}>{formatCurrency(payment.amount)}</td>
@@ -736,9 +866,22 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                                   </button>
                                 </>
                               )}
+                              {isSupabaseConfigured() && !payment.screenshotUrl && (
+                                <button className="btn btn-sm btn-secondary" onClick={() => {
+                                  setScreenshotUploadTarget(payment.id);
+                                  setTimeout(() => screenshotUploadRef.current?.click(), 0);
+                                }} title="Attach Screenshot">
+                                  <Camera size={14} />
+                                </button>
+                              )}
                               <button className="btn btn-sm btn-secondary" onClick={() => openEditPayment(payment)}
                                 title="Edit Payment">
                                 <Pencil size={14} />
+                              </button>
+                              <button className="btn btn-sm" onClick={() => setDeletingPayment(payment)}
+                                style={{ background: '#fef2f2', color: '#dc2626', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                                title="Delete Payment">
+                                <Trash2 size={14} />
                               </button>
                             </div>
                           </td>
@@ -777,7 +920,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                     <option value="">Select tenant</option>
                     {tenants.map(t => {
                       const prop = properties.find(p => p.id === t.propertyId);
-                      return <option key={t.id} value={t.id}>{t.name} — {prop?.address?.substring(0, 30) || 'No property'}</option>;
+                      return <option key={t.id} value={t.id}>{t.name} — {(prop?.name || prop?.address)?.substring(0, 30) || 'No property'}</option>;
                     })}
                   </select>
                 </div>
@@ -834,10 +977,39 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                     placeholder="Optional notes..." />
                 </div>
               )}
+              {editingPayment && isSupabaseConfigured() && (
+                <div className="form-group">
+                  <FileUpload
+                    label="Payment Screenshot (optional)"
+                    accept="image/jpeg,image/png,image/webp"
+                    maxSizeMB={5}
+                    currentUrl={editingPayment.screenshotUrl || ''}
+                    onUpload={async (file) => {
+                      const { allowed, message: limitMsg } = checkLimit('attachmentsMB', 0);
+                      if (!allowed) { setUpgradeMsg(limitMsg); return; }
+                      // Always delete old screenshot from storage before uploading new one
+                      await deleteAttachmentsForEntity(userId, 'payment', editingPayment.id);
+                      const url = await uploadAttachment(file, userId, 'payment', editingPayment.id, 'screenshot');
+                      await updatePayment(editingPayment.id, { screenshotUrl: url }, userId);
+                      setEditingPayment(prev => ({ ...prev, screenshotUrl: url }));
+                      showToast('Screenshot uploaded ✅');
+                      refreshStorageUsage();
+                    }}
+                    onRemove={async () => {
+                      // Delete screenshot from storage + attachments table
+                      await deleteAttachmentsForEntity(userId, 'payment', editingPayment.id);
+                      await updatePayment(editingPayment.id, { screenshotUrl: '', screenshot_url: '' }, userId);
+                      setEditingPayment(prev => ({ ...prev, screenshotUrl: '' }));
+                      showToast('Screenshot removed');
+                      refreshStorageUsage();
+                    }}
+                  />
+                </div>
+              )}
               <div className="modal-footer">
                 <button type="button" className="btn btn-secondary" onClick={resetPayForm}>Cancel</button>
-                <button type="submit" className="btn btn-primary">
-                  {editingPayment ? 'Update Payment' : <><Plus size={16} /> Add Payment</>}
+                <button type="submit" className="btn btn-primary" disabled={submitting}>
+                  {submitting ? '⏳ Saving...' : editingPayment ? 'Update Payment' : <><Plus size={16} /> Add Payment</>}
                 </button>
               </div>
             </form>
@@ -927,7 +1099,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                           <div style={{ flex: 1 }}>
                             <div style={{ fontWeight: 600, fontSize: '0.95rem' }}>{tenant.name}</div>
                             <div style={{ fontSize: '0.8rem', color: 'var(--gray-400)' }}>
-                              {property?.address?.substring(0, 40) || 'No property'}
+                              {(property?.name || property?.address)?.substring(0, 40) || 'No property'}
                               {bulkMonths.length > 1 && ` · ${missingMonths} month(s) to generate`}
                             </div>
                           </div>
@@ -992,7 +1164,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                 <div style={{ padding: '12px 16px', background: 'var(--gray-50)', borderRadius: '10px', marginBottom: '16px' }}>
                   <div style={{ fontWeight: 700, fontSize: '1rem' }}>{tenant?.name || 'Unknown'}</div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)' }}>
-                    {property?.address?.substring(0, 40)} · {markingPaid.month}
+                    {(property?.name || property?.address)?.substring(0, 40) || 'Unknown'} · {markingPaid.month}
                   </div>
                   <div style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--primary)', marginTop: '4px' }}>
                     {formatCurrency(markingPaid.amount)}
@@ -1025,6 +1197,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                         const url = await uploadAttachment(file, userId, 'payment', markingPaid.id, 'screenshot');
                         setMarkPaidForm(prev => ({ ...prev, screenshotUrl: url }));
                         showToast('Screenshot uploaded ✅');
+                        refreshStorageUsage();
                       }}
                       onRemove={() => {
                         setMarkPaidForm(prev => ({ ...prev, screenshotUrl: '' }));
@@ -1037,6 +1210,46 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                   <button type="button" className="btn btn-secondary" onClick={() => setMarkingPaid(null)}>Cancel</button>
                   <button type="button" className="btn btn-success" onClick={confirmMarkPaid}>
                     <CheckCircle size={16} /> Confirm Payment
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Delete Payment Confirmation Modal */}
+      {deletingPayment && (() => {
+        const tenant = tenants.find(t => t.id === deletingPayment.tenantId);
+        return (
+          <div className="modal-overlay" onClick={() => setDeletingPayment(null)}>
+            <div className="modal" style={{ maxWidth: '420px' }} onClick={e => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3 style={{ color: '#dc2626' }}><Trash2 size={20} /> Delete Payment</h3>
+                <button className="modal-close" onClick={() => setDeletingPayment(null)}>✕</button>
+              </div>
+              <div>
+                <div style={{ padding: '16px', background: '#fef2f2', borderRadius: '10px', marginBottom: '16px', border: '1px solid #fecaca' }}>
+                  <p style={{ margin: 0, fontSize: '0.9rem', color: '#991b1b' }}>
+                    Are you sure you want to delete this payment record? This action cannot be undone.
+                  </p>
+                </div>
+                <div style={{ padding: '12px 16px', background: 'var(--gray-50)', borderRadius: '10px', marginBottom: '16px' }}>
+                  <div style={{ fontWeight: 700 }}>{tenant?.name || 'Unknown'}</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '4px' }}>
+                    {deletingPayment.month} · {formatCurrency(deletingPayment.amount)} · <span className={`badge badge-${deletingPayment.status === 'paid' ? 'success' : deletingPayment.status === 'pending' ? 'warning' : 'danger'}`}>{deletingPayment.status}</span>
+                  </div>
+                  {deletingPayment.screenshotUrl && (
+                    <div style={{ fontSize: '0.8rem', color: '#d97706', marginTop: '6px' }}>
+                      ⚠️ Associated screenshot will also be deleted
+                    </div>
+                  )}
+                </div>
+                <div className="modal-footer">
+                  <button type="button" className="btn btn-secondary" onClick={() => setDeletingPayment(null)}>Cancel</button>
+                  <button type="button" className="btn" onClick={() => handleDeletePayment(deletingPayment)}
+                    style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '8px', padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}>
+                    <Trash2 size={14} /> Delete Payment
                   </button>
                 </div>
               </div>
