@@ -1,30 +1,38 @@
 import { useState, useEffect } from 'react';
-import { Building2, Users, IndianRupee, AlertTriangle, TrendingUp, ArrowRight } from 'lucide-react';
-import { getProperties, getTenants, getPayments, getMaintenanceRequests } from '../store';
+import { Building2, Users, IndianRupee, AlertTriangle, TrendingUp, ArrowRight, Crown, HardDrive, FileText, Receipt, Gauge, Mail, X, Calendar, CreditCard, StickyNote, ImageIcon, Eye } from 'lucide-react';
+import { getProperties, getTenants, getPayments, getMaintenanceRequests, getAgreements, getReceipts } from '../store';
 import { useAuth } from '../context/AuthContext';
+import { formatLimit } from '../lib/planLimits';
 import { DashboardSkeleton } from '../components/SkeletonLoader';
 
 export default function Dashboard({ onNavigate, refreshKey }) {
-  const { user } = useAuth();
+  const { user, currentPlan, getPlanLimits, storageUsedMB, getDaysLeft, license } = useAuth();
   const userId = user?.id;
   const [properties, setProperties] = useState([]);
   const [tenants, setTenants] = useState([]);
   const [payments, setPayments] = useState([]);
   const [maintenance, setMaintenance] = useState([]);
+  const [agreements, setAgreements] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [viewPayment, setViewPayment] = useState(null);
 
   useEffect(() => {
     async function load() {
-      const [p, t, pay, m] = await Promise.all([
+      const [p, t, pay, m, ag, rc] = await Promise.all([
         getProperties(userId),
         getTenants(userId),
         getPayments(userId),
         getMaintenanceRequests(userId),
+        getAgreements(userId),
+        getReceipts(userId),
       ]);
       setProperties(p);
       setTenants(t);
       setPayments(pay);
       setMaintenance(m);
+      setAgreements(ag);
+      setReceipts(rc);
       setLoading(false);
     }
     load();
@@ -88,6 +96,124 @@ export default function Dashboard({ onNavigate, refreshKey }) {
           <div className="stat-label">Pending / Overdue</div>
         </div>
       </div>
+
+      {/* License Usage Widget */}
+      {(() => {
+        const limits = getPlanLimits();
+        const thisMonth = new Date().toISOString().slice(0, 7);
+        const agreementsThisMonth = agreements.filter(a => (a.createdAt || a.created_at || '').slice(0, 7) === thisMonth).length;
+        const receiptsThisMonth = receipts.filter(r => (r.createdAt || r.created_at || '').slice(0, 7) === thisMonth).length;
+        const daysLeft = getDaysLeft();
+
+        const usageItems = [
+          { label: 'Properties', used: properties.length, limit: limits.properties, icon: <Building2 size={16} />, color: '#6366f1' },
+          { label: 'Active Tenants', used: tenants.length, limit: limits.tenants, icon: <Users size={16} />, color: '#0ea5e9' },
+          { label: 'Agreements', sub: 'this month', used: agreementsThisMonth, limit: limits.agreements, icon: <FileText size={16} />, color: '#8b5cf6' },
+          { label: 'Receipts', sub: 'this month', used: receiptsThisMonth, limit: limits.receipts, icon: <Receipt size={16} />, color: '#f59e0b' },
+          { label: 'Storage', used: storageUsedMB, limit: limits.attachmentsMB, icon: <HardDrive size={16} />, color: '#10b981', unit: 'MB' },
+        ];
+
+        const hasAnyNearLimit = usageItems.some(item => {
+          if (item.limit >= 99999 || item.limit === 0) return false;
+          return (item.used / item.limit) >= 0.8;
+        });
+
+        return (
+          <div className="card" style={{ marginBottom: '24px' }}>
+            <div className="card-header">
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Gauge size={20} /> Plan Usage
+              </h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <span className={`badge badge-${currentPlan === 'business' ? 'success' : currentPlan === 'pro' ? 'primary' : 'warning'}`}
+                  style={{ textTransform: 'capitalize', fontSize: '0.8rem', padding: '4px 12px' }}>
+                  <Crown size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
+                  {limits.label}
+                </span>
+                {currentPlan === 'trial' && daysLeft > 0 && (
+                  <span style={{ fontSize: '0.8rem', color: daysLeft <= 7 ? 'var(--danger)' : 'var(--gray-500)' }}>
+                    {daysLeft} day{daysLeft !== 1 ? 's' : ''} left
+                  </span>
+                )}
+                <button className="btn btn-sm btn-secondary" onClick={() => onNavigate('license')}>
+                  {['free', 'trial'].includes(currentPlan) ? 'Upgrade' : 'Manage Plan'} <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginTop: '8px' }}>
+              {usageItems.map(item => {
+                const isUnlimited = item.limit >= 99999;
+                const isDisabled = item.limit === 0 && item.label === 'Storage';
+                const percent = isUnlimited ? 0 : isDisabled ? 100 : item.limit > 0 ? Math.min(100, Math.round((item.used / item.limit) * 100)) : 0;
+                const barColor = percent >= 90 ? 'var(--danger)' : percent >= 70 ? 'var(--warning)' : item.color;
+                const isAtLimit = !isUnlimited && !isDisabled && percent >= 100;
+
+                return (
+                  <div key={item.label} style={{
+                    padding: '14px 16px', borderRadius: '10px',
+                    background: isAtLimit ? 'var(--danger-bg)' : 'var(--gray-50)',
+                    border: isAtLimit ? '1px solid var(--danger)' : '1px solid var(--gray-100)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--gray-600)', fontSize: '0.85rem', fontWeight: 600 }}>
+                        <span style={{ color: item.color }}>{item.icon}</span>
+                        {item.label}
+                      </div>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 700, color: isAtLimit ? 'var(--danger)' : 'var(--gray-700)' }}>
+                        {isDisabled ? 'N/A' : isUnlimited
+                          ? `${item.used}${item.unit ? ` ${item.unit}` : ''}`
+                          : `${item.used}${item.unit ? ` ${item.unit}` : ''} / ${formatLimit(item.limit)}${item.unit ? ` ${item.unit}` : ''}`
+                        }
+                      </span>
+                    </div>
+                    {item.sub && <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)', marginBottom: '6px', marginTop: '-4px' }}>{item.sub}</div>}
+                    <div style={{ height: '6px', borderRadius: '3px', background: 'var(--gray-200)', overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', borderRadius: '3px',
+                        width: isDisabled ? '0%' : isUnlimited ? '15%' : `${percent}%`,
+                        background: isDisabled ? 'var(--gray-300)' : barColor,
+                        transition: 'width 0.5s ease',
+                      }} />
+                    </div>
+                    {isAtLimit && (
+                      <div style={{ fontSize: '0.7rem', color: 'var(--danger)', fontWeight: 600, marginTop: '4px' }}>
+                        ⚠️ Limit reached
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Upgrade nudge or support link */}
+            {hasAnyNearLimit && ['free', 'trial'].includes(currentPlan) && (
+              <div style={{
+                marginTop: '16px', padding: '12px 16px', borderRadius: '8px',
+                background: 'linear-gradient(135deg, #eef2ff, #e0e7ff)',
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+              }}>
+                <div style={{ fontSize: '0.85rem', color: 'var(--gray-700)' }}>
+                  <span style={{ fontWeight: 600 }}>Running low on limits?</span> Upgrade your plan to unlock more properties, tenants, and features.
+                </div>
+                <button className="btn btn-sm btn-primary" onClick={() => onNavigate('license')} style={{ whiteSpace: 'nowrap' }}>
+                  Upgrade Now
+                </button>
+              </div>
+            )}
+            {currentPlan === 'business' && (
+              <div style={{
+                marginTop: '16px', padding: '10px 16px', borderRadius: '8px',
+                background: 'var(--gray-50)', display: 'flex', alignItems: 'center', gap: '8px',
+                fontSize: '0.8rem', color: 'var(--gray-500)',
+              }}>
+                <Mail size={14} />
+                Need higher limits or have billing questions? Contact us at <a href="mailto:support@userenteasy.in" style={{ color: 'var(--primary)', fontWeight: 600 }}>support@userenteasy.in</a>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
         {/* Monthly Overview */}
@@ -185,7 +311,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
                 const tenant = tenants.find(t => t.id === payment.tenantId);
                 const property = properties.find(p => p.id === payment.propertyId);
                 return (
-                  <tr key={payment.id}>
+                  <tr key={payment.id} onClick={() => setViewPayment(payment)} style={{ cursor: 'pointer' }} title="Click to view details">
                     <td style={{ fontWeight: 600 }}>{tenant?.name || 'Unknown'}</td>
                     <td>{(() => { const label = property?.name || property?.address; return label ? (label.length > 30 ? label.substring(0, 30) + '...' : label) : 'Unknown'; })()}</td>
                     <td style={{ fontWeight: 600 }}>{formatCurrency(payment.amount)}</td>
@@ -234,6 +360,121 @@ export default function Dashboard({ onNavigate, refreshKey }) {
           })}
         </div>
       )}
+
+      {/* Payment Detail Modal */}
+      {viewPayment && (() => {
+        const vTenant = tenants.find(t => t.id === viewPayment.tenantId);
+        const vProperty = properties.find(p => p.id === viewPayment.propertyId);
+        const monthLabel = viewPayment.month ? new Date(viewPayment.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '—';
+        const statusColor = viewPayment.status === 'paid' ? 'var(--success)' : viewPayment.status === 'pending' ? 'var(--warning)' : 'var(--danger)';
+        const statusBg = viewPayment.status === 'paid' ? 'var(--success-bg)' : viewPayment.status === 'pending' ? 'var(--warning-bg)' : 'var(--danger-bg)';
+
+        return (
+          <div className="modal-overlay" onClick={() => setViewPayment(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <div className="modal-header">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Eye size={20} /> Payment Details
+                </h3>
+                <button className="btn btn-sm btn-secondary" onClick={() => setViewPayment(null)}><X size={16} /></button>
+              </div>
+
+              {/* Amount hero */}
+              <div style={{
+                textAlign: 'center', padding: '24px 16px', margin: '0 0 20px',
+                background: statusBg, borderRadius: '12px',
+              }}>
+                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: statusColor }}>
+                  {formatCurrency(viewPayment.amount)}
+                </div>
+                <span className={`badge badge-${viewPayment.status === 'paid' ? 'success' : viewPayment.status === 'pending' ? 'warning' : 'danger'}`}
+                  style={{ fontSize: '0.85rem', padding: '4px 14px', marginTop: '8px', display: 'inline-block', textTransform: 'capitalize' }}>
+                  {viewPayment.status === 'paid' ? '✅ ' : viewPayment.status === 'overdue' ? '⚠️ ' : '⏳ '}{viewPayment.status}
+                </span>
+              </div>
+
+              {/* Details grid */}
+              <div style={{ display: 'grid', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                  <Users size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Tenant</div>
+                    <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{vTenant?.name || 'Unknown'}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                  <Building2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Property</div>
+                    <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{vProperty?.name || vProperty?.address || 'Unknown'}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <Calendar size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Month</div>
+                      <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{monthLabel}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <CreditCard size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Method</div>
+                      <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{viewPayment.method || '—'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {viewPayment.status === 'paid' && viewPayment.paidDate && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--success-bg)', borderRadius: '8px' }}>
+                    <Calendar size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Paid On</div>
+                      <div style={{ fontWeight: 600, color: 'var(--success)' }}>{viewPayment.paidDate}</div>
+                    </div>
+                  </div>
+                )}
+
+                {viewPayment.notes && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <StickyNote size={16} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Notes</div>
+                      <div style={{ color: 'var(--gray-700)', fontSize: '0.9rem' }}>{viewPayment.notes}</div>
+                    </div>
+                  </div>
+                )}
+
+                {viewPayment.screenshotUrl && (
+                  <div style={{ padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                      <ImageIcon size={16} style={{ color: 'var(--primary)' }} />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Payment Proof</span>
+                    </div>
+                    <a href={viewPayment.screenshotUrl} target="_blank" rel="noopener noreferrer">
+                      <img src={viewPayment.screenshotUrl} alt="Payment proof"
+                        style={{ width: '100%', maxHeight: '200px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--gray-200)' }}
+                      />
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--gray-100)' }}>
+                <button className="btn btn-secondary" onClick={() => setViewPayment(null)}>Close</button>
+                <button className="btn btn-primary" onClick={() => { setViewPayment(null); onNavigate('payments'); }}>
+                  Go to Payments <ArrowRight size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

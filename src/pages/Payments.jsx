@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Search, CheckCircle, MessageCircle, Filter, Plus, IndianRupee, Pencil, Zap, CalendarPlus, Upload, Image, ChevronLeft, ChevronRight, Users, AlertTriangle, Clock, LayoutGrid, List, Send, Trash2, Camera } from 'lucide-react';
+import { Search, CheckCircle, MessageCircle, Filter, Plus, IndianRupee, Pencil, Zap, CalendarPlus, Upload, Image, ChevronLeft, ChevronRight, Users, AlertTriangle, Clock, LayoutGrid, List, Send, Trash2, Camera, Eye, X, Calendar, CreditCard, StickyNote, ImageIcon, Building2 } from 'lucide-react';
 import { getPayments, updatePayment, addPayment, deletePayment, getTenants, getProperties, uploadAttachment, getRentDueDay, deleteAttachmentsForEntity } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { isSupabaseConfigured } from '../lib/supabase';
@@ -405,6 +405,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   };
 
   const [deletingPayment, setDeletingPayment] = useState(null); // payment pending delete confirmation
+  const [viewPayment, setViewPayment] = useState(null); // payment being viewed in detail modal
 
   const handleDeletePayment = async (payment) => {
     try {
@@ -696,6 +697,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                             <Camera size={12} />
                           </button>
                         )}
+                        <button className="btn btn-sm" onClick={() => setViewPayment(payment)}
+                          style={{ marginLeft: '4px', fontSize: '0.78rem', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', padding: '4px 8px', cursor: 'pointer' }}
+                          title="View payment details">
+                          <Eye size={12} />
+                        </button>
                         <button className="btn btn-sm" onClick={() => openEditPayment(payment)}
                           style={{ marginLeft: '4px', fontSize: '0.78rem', background: 'var(--gray-100)', color: 'var(--gray-500)', border: 'none', borderRadius: '8px', padding: '4px 8px', cursor: 'pointer' }}
                           title="Edit payment details">
@@ -756,6 +762,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                             <Image size={14} style={{ color: 'var(--primary)', verticalAlign: 'middle' }} />
                           </a>
                         )}
+                        <button className="btn btn-sm" onClick={() => setViewPayment(payment)}
+                          style={{ fontSize: '0.78rem', background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                          title="View payment details">
+                          <Eye size={12} />
+                        </button>
                         <button className="btn btn-sm" onClick={() => openEditPayment(payment)}
                           style={{ fontSize: '0.82rem', background: 'var(--gray-100)', color: 'var(--gray-500)', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
                           title="Edit payment details">
@@ -857,6 +868,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                           </td>
                           <td>
                             <div className="action-buttons">
+                              <button className="btn btn-sm" onClick={() => setViewPayment(payment)}
+                                style={{ background: '#e0e7ff', color: '#4f46e5', border: 'none', borderRadius: '8px', padding: '5px 8px', cursor: 'pointer' }}
+                                title="View Details">
+                                <Eye size={14} />
+                              </button>
                               {payment.status !== 'paid' && (
                                 <>
                                   <button className="btn btn-sm btn-success" onClick={() => openMarkPaidModal(payment)}
@@ -1254,6 +1270,128 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                     <Trash2 size={14} /> Delete Payment
                   </button>
                 </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* View Payment Detail Modal */}
+      {viewPayment && (() => {
+        const vTenant = tenants.find(t => t.id === viewPayment.tenantId);
+        const vProperty = properties.find(p => p.id === viewPayment.propertyId);
+        const monthLabel = viewPayment.month ? new Date(viewPayment.month + '-01').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) : '—';
+        const statusColor = viewPayment.status === 'paid' ? 'var(--success)' : viewPayment.status === 'pending' ? 'var(--warning)' : 'var(--danger)';
+        const statusBg = viewPayment.status === 'paid' ? 'var(--success-bg)' : viewPayment.status === 'pending' ? 'var(--warning-bg)' : 'var(--danger-bg)';
+
+        return (
+          <div className="modal-overlay" onClick={() => setViewPayment(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '520px' }}>
+              <div className="modal-header">
+                <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <Eye size={20} /> Payment Details
+                </h3>
+                <button className="modal-close" onClick={() => setViewPayment(null)}>✕</button>
+              </div>
+
+              {/* Amount hero */}
+              <div style={{
+                textAlign: 'center', padding: '24px 16px', margin: '0 0 20px',
+                background: statusBg, borderRadius: '12px',
+              }}>
+                <div style={{ fontSize: '2.2rem', fontWeight: 800, color: statusColor }}>
+                  {formatCurrency(viewPayment.amount)}
+                </div>
+                <span className={`badge badge-${viewPayment.status === 'paid' ? 'success' : viewPayment.status === 'pending' ? 'warning' : 'danger'}`}
+                  style={{ fontSize: '0.85rem', padding: '4px 14px', marginTop: '8px', display: 'inline-block', textTransform: 'capitalize' }}>
+                  {viewPayment.status === 'paid' ? '✅ ' : viewPayment.status === 'overdue' ? '⚠️ ' : '⏳ '}{viewPayment.status}
+                </span>
+              </div>
+
+              {/* Details grid */}
+              <div style={{ display: 'grid', gap: '14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                  <Users size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Tenant</div>
+                    <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{vTenant?.name || 'Unknown'}</div>
+                    {vTenant?.phone && <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{vTenant.phone}</div>}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                  <Building2 size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                  <div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Property</div>
+                    <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{vProperty?.name || vProperty?.address || 'Unknown'}</div>
+                    {vProperty?.name && vProperty?.address && <div style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>{vProperty.address}</div>}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <Calendar size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Month</div>
+                      <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{monthLabel}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <CreditCard size={16} style={{ color: 'var(--primary)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Method</div>
+                      <div style={{ fontWeight: 600, color: 'var(--gray-800)' }}>{viewPayment.method || '—'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {viewPayment.status === 'paid' && viewPayment.paidDate && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', background: 'var(--success-bg)', borderRadius: '8px' }}>
+                    <Calendar size={16} style={{ color: 'var(--success)', flexShrink: 0 }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Paid On</div>
+                      <div style={{ fontWeight: 600, color: 'var(--success)' }}>{viewPayment.paidDate}</div>
+                    </div>
+                  </div>
+                )}
+
+                {viewPayment.notes && (
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <StickyNote size={16} style={{ color: 'var(--primary)', flexShrink: 0, marginTop: '2px' }} />
+                    <div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Notes</div>
+                      <div style={{ color: 'var(--gray-700)', fontSize: '0.9rem' }}>{viewPayment.notes}</div>
+                    </div>
+                  </div>
+                )}
+
+                {viewPayment.screenshotUrl && (
+                  <div style={{ padding: '10px 14px', background: 'var(--gray-50)', borderRadius: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '8px' }}>
+                      <ImageIcon size={16} style={{ color: 'var(--primary)' }} />
+                      <span style={{ fontSize: '0.75rem', color: 'var(--gray-400)', fontWeight: 600 }}>Payment Proof</span>
+                    </div>
+                    <a href={viewPayment.screenshotUrl} target="_blank" rel="noopener noreferrer">
+                      <img src={viewPayment.screenshotUrl} alt="Payment proof"
+                        style={{ width: '100%', maxHeight: '250px', objectFit: 'contain', borderRadius: '8px', border: '1px solid var(--gray-200)' }}
+                      />
+                    </a>
+                  </div>
+                )}
+              </div>
+
+              {/* Footer actions */}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--gray-100)' }}>
+                <button className="btn btn-secondary" onClick={() => setViewPayment(null)}>Close</button>
+                {viewPayment.status !== 'paid' && (
+                  <button className="btn btn-success" onClick={() => { setViewPayment(null); openMarkPaidModal(viewPayment); }}>
+                    <CheckCircle size={14} /> Mark Paid
+                  </button>
+                )}
+                <button className="btn btn-secondary" onClick={() => { setViewPayment(null); openEditPayment(viewPayment); }}>
+                  <Pencil size={14} /> Edit
+                </button>
               </div>
             </div>
           </div>
