@@ -301,17 +301,29 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                       <Trash2 size={14} />
                     </button>
                     {req.status === 'open' && (
-                      <button className="btn btn-sm btn-primary" onClick={() => updateStatus(req.id, 'in-progress')}>
-                        Start Work
-                      </button>
+                      <>
+                        <button className="btn btn-sm btn-primary" onClick={() => updateStatus(req.id, 'in-progress')}>
+                          Start Work
+                        </button>
+                        <button className="btn btn-sm btn-success" onClick={() => updateStatus(req.id, 'resolved')} title="Skip to resolved">
+                          <CheckCircle size={14} />
+                        </button>
+                      </>
                     )}
                     {req.status === 'in-progress' && (
-                      <button className="btn btn-sm btn-success" onClick={() => updateStatus(req.id, 'resolved')}>
-                        <CheckCircle size={14} /> Resolve
-                      </button>
+                      <>
+                        <button className="btn btn-sm btn-success" onClick={() => updateStatus(req.id, 'resolved')}>
+                          <CheckCircle size={14} /> Resolve
+                        </button>
+                        <button className="btn btn-sm btn-secondary" onClick={() => updateStatus(req.id, 'open')} title="Reopen">
+                          <AlertTriangle size={14} />
+                        </button>
+                      </>
                     )}
                     {req.status === 'resolved' && (
-                      <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>✅ Done</span>
+                      <button className="btn btn-sm btn-secondary" onClick={() => updateStatus(req.id, 'open')} title="Reopen this request">
+                        <AlertTriangle size={14} /> Reopen
+                      </button>
                     )}
                   </div>
                 </div>
@@ -557,13 +569,28 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                 </div>
                 <div className="modal-footer">
                   {viewRequest.status === 'open' && (
-                    <button className="btn btn-primary" onClick={() => { updateStatus(viewRequest.id, 'in-progress'); setViewRequest(null); }}>
-                      Start Work
-                    </button>
+                    <>
+                      <button className="btn btn-primary" onClick={() => { updateStatus(viewRequest.id, 'in-progress'); setViewRequest(null); }}>
+                        Start Work
+                      </button>
+                      <button className="btn btn-success" onClick={() => { updateStatus(viewRequest.id, 'resolved'); setViewRequest(null); }}>
+                        <CheckCircle size={14} /> Resolve
+                      </button>
+                    </>
                   )}
                   {viewRequest.status === 'in-progress' && (
-                    <button className="btn btn-success" onClick={() => { updateStatus(viewRequest.id, 'resolved'); setViewRequest(null); }}>
-                      <CheckCircle size={14} /> Mark Resolved
+                    <>
+                      <button className="btn btn-success" onClick={() => { updateStatus(viewRequest.id, 'resolved'); setViewRequest(null); }}>
+                        <CheckCircle size={14} /> Mark Resolved
+                      </button>
+                      <button className="btn btn-secondary" onClick={() => { updateStatus(viewRequest.id, 'open'); setViewRequest(null); }}>
+                        <AlertTriangle size={14} /> Reopen
+                      </button>
+                    </>
+                  )}
+                  {viewRequest.status === 'resolved' && (
+                    <button className="btn btn-secondary" onClick={() => { updateStatus(viewRequest.id, 'open'); setViewRequest(null); }}>
+                      <AlertTriangle size={14} /> Reopen
                     </button>
                   )}
                   <button className="btn btn-secondary" onClick={() => { setViewRequest(null); openEditModal(viewRequest); }}>

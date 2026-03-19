@@ -30,7 +30,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
     load();
   }, [userId, refreshKey]);
 
-  const totalRent = properties.reduce((sum, p) => sum + Number(p.rent), 0);
+  const totalRent = tenants.reduce((sum, t) => sum + Number(t.rent || 0), 0);
   const currentMonth = new Date().toISOString().slice(0, 7); // e.g. '2026-03'
   const currentMonthLabel = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); // e.g. 'March 2026'
 

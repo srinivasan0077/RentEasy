@@ -80,12 +80,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   const handleTenantChange = (tenantId) => {
     const tenant = tenants.find(t => t.id === tenantId);
     if (tenant) {
-      const property = properties.find(p => p.id === tenant.propertyId);
       setPayForm({
         ...payForm,
         tenantId,
         propertyId: tenant.propertyId || tenant.property_id || '',
-        amount: property?.rent || '',
+        amount: tenant.rent || '',
       });
     }
   };
@@ -227,12 +226,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
         const exists = payments.some(p => p.tenantId === tenantId && p.month === month);
         if (exists) { skipped++; continue; }
         const tenant = tenants.find(t => t.id === tenantId);
-        const property = properties.find(p => p.id === tenant?.propertyId);
         try {
           await addPayment({
             tenantId,
             propertyId: tenant?.propertyId || '',
-            amount: property?.rent || 0,
+            amount: tenant?.rent || 0,
             month,
             status: 'pending',
             paidDate: null,
@@ -294,12 +292,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
     for (const tenant of tenants) {
       const exists = payments.some(p => p.tenantId === tenant.id && p.month === selectedMonth);
       if (exists) continue;
-      const property = properties.find(p => p.id === tenant.propertyId);
       try {
         await addPayment({
           tenantId: tenant.id,
           propertyId: tenant.propertyId || '',
-          amount: property?.rent || 0,
+          amount: tenant.rent || 0,
           month: selectedMonth,
           status: 'pending',
           paidDate: null,
@@ -669,7 +666,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
 
                   {/* Amount */}
                   <div style={{ fontSize: '1.4rem', fontWeight: 800, color: c.text, marginBottom: '12px' }}>
-                    {formatCurrency(payment?.amount || property?.rent || 0)}
+                    {formatCurrency(payment?.amount || tenant.rent || 0)}
                   </div>
 
                   {/* Extra Info */}
@@ -716,7 +713,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                           await addPayment({
                             tenantId: tenant.id,
                             propertyId: tenant.propertyId || '',
-                            amount: property?.rent || 0,
+                            amount: tenant.rent || 0,
                             month: selectedMonth,
                             status: 'pending',
                             paidDate: null,
@@ -1110,7 +1107,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                             </div>
                           </div>
                           <div style={{ fontWeight: 700, color: 'var(--primary)', fontSize: '0.95rem' }}>
-                            {formatCurrency(property?.rent || 0)}
+                            {formatCurrency(tenant.rent || 0)}
                           </div>
                         </label>
                       );
@@ -1134,9 +1131,8 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
                     <strong style={{ color: 'var(--primary)' }}>
                       {formatCurrency(bulkTenants.reduce((sum, tid) => {
                         const t = tenants.find(t => t.id === tid);
-                        const p = properties.find(p => p.id === t?.propertyId);
                         const missingMonths = bulkMonths.filter(m => !payments.some(pay => pay.tenantId === tid && pay.month === m)).length;
-                        return sum + ((Number(p?.rent) || 0) * missingMonths);
+                        return sum + ((Number(t?.rent) || 0) * missingMonths);
                       }, 0))}
                     </strong>
                   </div>

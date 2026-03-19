@@ -144,7 +144,7 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
         propertyId: tenant.propertyId || tenant.property_id || '',
         startDate: tenant.moveInDate || tenant.move_in_date || '',
         endDate: tenant.leaseEnd || tenant.lease_end || '',
-        rentAmount: property?.rent || '',
+        rentAmount: tenant.rent || '',
         deposit: property?.deposit || '',
         stampDutyState: deriveStateFromProperty(property),
       });
@@ -156,7 +156,6 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     setForm({
       ...form,
       propertyId,
-      rentAmount: property?.rent || form.rentAmount,
       deposit: property?.deposit || form.deposit,
       stampDutyState: deriveStateFromProperty(property),
     });

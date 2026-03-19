@@ -25,7 +25,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [form, setForm] = useState({
     name: '', phone: '', email: '', aadhaar: '', pan: '',
-    propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '',
+    propertyId: '', unitNumber: '', rent: '', moveInDate: '', leaseEnd: '',
     emergencyContact: '', emergencyName: '',
   });
   const [tenants, setTenants] = useState([]);
@@ -71,6 +71,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
           pan: form.pan,
           property_id: form.propertyId,
           unit_number: form.unitNumber || '',
+          rent: Number(form.rent) || 0,
           move_in_date: form.moveInDate || null,
           lease_end: form.leaseEnd || null,
           emergency_name: form.emergencyName,
@@ -92,7 +93,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
   };
 
   const resetForm = () => {
-    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
+    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', rent: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
     setShowModal(false);
     setEditingTenant(null);
     setSubmitting(false);
@@ -108,6 +109,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
       pan: tenant.pan || '',
       propertyId: tenant.propertyId || '',
       unitNumber: tenant.unitNumber || '',
+      rent: tenant.rent || '',
       moveInDate: tenant.moveInDate || '',
       leaseEnd: tenant.leaseEnd || '',
       emergencyContact: tenant.emergencyContact || '',
@@ -123,7 +125,7 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
       return;
     }
     setEditingTenant(null);
-    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
+    setForm({ name: '', phone: '', email: '', aadhaar: '', pan: '', propertyId: '', unitNumber: '', rent: '', moveInDate: '', leaseEnd: '', emergencyContact: '', emergencyName: '' });
     setShowModal(true);
   };
 
@@ -359,7 +361,11 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
               <div className="form-group">
                 <label className="form-label">Assign Property *</label>
                 <select className="form-select" value={form.propertyId}
-                  onChange={e => setForm({ ...form, propertyId: e.target.value })}>
+                  onChange={e => {
+                    const propId = e.target.value;
+                    const prop = properties.find(p => p.id === propId);
+                    setForm({ ...form, propertyId: propId, rent: form.rent || prop?.rent || '' });
+                  }}>
                   <option value="">Select a property</option>
                   {properties.map(p => {
                     const occupantCount = tenants.filter(t => t.propertyId === p.id && (!editingTenant || t.id !== editingTenant.id)).length;
@@ -381,6 +387,15 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                   placeholder="e.g. Floor 1, Room 2A, Ground Floor" />
                 <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: '4px' }}>
                   Helps identify the exact portion rented — appears in agreements & receipts
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Monthly Rent (₹) *</label>
+                <input className="form-input" type="number" value={form.rent}
+                  onChange={e => setForm({ ...form, rent: e.target.value })}
+                  placeholder="e.g. 15000" />
+                <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)', marginTop: '4px' }}>
+                  Used for payment generation, agreements & receipts
                 </div>
               </div>
               <div className="form-row">

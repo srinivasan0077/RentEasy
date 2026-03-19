@@ -107,6 +107,7 @@ export async function getTenants(userId) {
       ...t,
       propertyId: t.property_id,
       unitNumber: t.unit_number || '',
+      rent: Number(t.rent) || 0,
       moveInDate: t.move_in_date,
       leaseEnd: t.lease_end,
       emergencyName: t.emergency_name,
@@ -125,6 +126,7 @@ export async function addTenant(tenant, userId) {
       user_id: userId,
       property_id: tenant.propertyId || tenant.property_id,
       unit_number: tenant.unitNumber || tenant.unit_number || '',
+      rent: Number(tenant.rent) || 0,
       name: tenant.name,
       phone: tenant.phone,
       email: tenant.email || '',
@@ -644,8 +646,8 @@ export function loadDemoData() {
   setLocal(STORAGE_KEYS.PROPERTIES, props);
 
   const tenants = [
-    { id: tenant1Id, name: 'Rahul Sharma', phone: '9876543210', email: 'rahul.sharma@email.com', aadhaar: '1234-5678-9012', pan: 'ABCDE1234F', propertyId: prop1Id, moveInDate: formatDemoDate(-9), leaseEnd: formatDemoDate(3), emergencyContact: '9876543211', emergencyName: 'Priya Sharma', createdAt: now },
-    { id: tenant2Id, name: 'Anita Desai', phone: '9988776655', email: 'anita.desai@email.com', aadhaar: '9876-5432-1098', pan: 'FGHIJ5678K', propertyId: prop2Id, moveInDate: formatDemoDate(-6), leaseEnd: formatDemoDate(6), emergencyContact: '9988776656', emergencyName: 'Vikram Desai', createdAt: now },
+    { id: tenant1Id, name: 'Rahul Sharma', phone: '9876543210', email: 'rahul.sharma@email.com', aadhaar: '1234-5678-9012', pan: 'ABCDE1234F', propertyId: prop1Id, rent: 25000, moveInDate: formatDemoDate(-9), leaseEnd: formatDemoDate(3), emergencyContact: '9876543211', emergencyName: 'Priya Sharma', createdAt: now },
+    { id: tenant2Id, name: 'Anita Desai', phone: '9988776655', email: 'anita.desai@email.com', aadhaar: '9876-5432-1098', pan: 'FGHIJ5678K', propertyId: prop2Id, rent: 18000, moveInDate: formatDemoDate(-6), leaseEnd: formatDemoDate(6), emergencyContact: '9988776656', emergencyName: 'Vikram Desai', createdAt: now },
   ];
   setLocal(STORAGE_KEYS.TENANTS, tenants);
 
