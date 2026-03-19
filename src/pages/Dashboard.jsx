@@ -33,16 +33,21 @@ export default function Dashboard({ onNavigate, refreshKey }) {
   const totalRent = properties.reduce((sum, p) => sum + Number(p.rent), 0);
   const currentMonth = new Date().toISOString().slice(0, 7); // e.g. '2026-03'
   const currentMonthLabel = new Date().toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); // e.g. 'March 2026'
-  const paidPayments = payments.filter(p => p.status === 'paid');
-  const pendingPayments = payments.filter(p => p.status === 'pending');
-  const overduePayments = payments.filter(p => p.status === 'overdue');
-  const collectedThisMonth = payments
+
+  // Only count payments for active tenants in metrics
+  const activeTenantIds = new Set(tenants.map(t => t.id));
+  const activePayments = payments.filter(p => activeTenantIds.has(p.tenantId));
+
+  const paidPayments = activePayments.filter(p => p.status === 'paid');
+  const pendingPayments = activePayments.filter(p => p.status === 'pending');
+  const overduePayments = activePayments.filter(p => p.status === 'overdue');
+  const collectedThisMonth = activePayments
     .filter(p => p.status === 'paid' && p.month === currentMonth)
     .reduce((sum, p) => sum + Number(p.amount), 0);
   const totalCollected = paidPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-  const openMaintenance = maintenance.filter(m => m.status !== 'resolved');
+  const openMaintenance = maintenance.filter(m => m.status !== 'resolved' && (!m.tenantId || activeTenantIds.has(m.tenantId)));
 
-  const thisMonthPayments = payments
+  const thisMonthPayments = activePayments
     .filter(p => p.month === currentMonth)
     .sort((a, b) => {
       const order = { overdue: 0, pending: 1, paid: 2 };
@@ -98,13 +103,13 @@ export default function Dashboard({ onNavigate, refreshKey }) {
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--warning-bg)', borderRadius: '8px' }}>
               <span style={{ fontWeight: 600, color: 'var(--warning)' }}>Pending</span>
               <span style={{ fontWeight: 700, color: 'var(--warning)' }}>
-                {formatCurrency(payments.filter(p => p.status === 'pending' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
+                {formatCurrency(activePayments.filter(p => p.status === 'pending' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--danger-bg)', borderRadius: '8px' }}>
               <span style={{ fontWeight: 600, color: 'var(--danger)' }}>Overdue</span>
               <span style={{ fontWeight: 700, color: 'var(--danger)' }}>
-                {formatCurrency(payments.filter(p => p.status === 'overdue' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
+                {formatCurrency(activePayments.filter(p => p.status === 'overdue' && p.month === currentMonth).reduce((s, p) => s + Number(p.amount), 0))}
               </span>
             </div>
             <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 16px', background: 'var(--primary-bg)', borderRadius: '8px' }}>
@@ -209,6 +214,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
           </div>
           {openMaintenance.slice(0, 3).map(req => {
             const property = properties.find(p => p.id === req.propertyId);
+            const tenant = tenants.find(t => t.id === req.tenantId);
             return (
               <div key={req.id} className="request-card">
                 <div className="request-header">
@@ -219,6 +225,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
                 </div>
                 <div className="request-desc">{req.description}</div>
                 <div className="request-meta">
+                  <span>👤 {tenant?.name || 'N/A'}</span>
                   <span>📍 {(() => { const label = property?.name || property?.address; return label ? (label.length > 30 ? label.substring(0, 30) + '...' : label) : 'Unknown'; })()}</span>
                   <span className={`badge badge-${req.status === 'open' ? 'warning' : 'primary'}`}>{req.status}</span>
                 </div>

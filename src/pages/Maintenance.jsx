@@ -17,7 +17,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
   const [filter, setFilter] = useState('all');
   const [upgradeMsg, setUpgradeMsg] = useState('');
   const [form, setForm] = useState({
-    propertyId: '', tenantId: '', title: '', description: '', priority: 'medium',
+    tenantId: '', propertyId: '', title: '', description: '', priority: 'medium',
   });
   const [requests, setRequests] = useState([]);
   const [properties, setProperties] = useState([]);
@@ -47,17 +47,24 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
     load();
   }, [userId, refreshKey]);
 
-  const filteredRequests = requests
+  // Filter out requests for inactive (soft-deleted) tenants
+  const activeTenantIds = new Set(tenants.map(t => t.id));
+  const activeRequests = requests.filter(r => !r.tenantId || activeTenantIds.has(r.tenantId));
+
+  const filteredRequests = activeRequests
     .filter(r => filter === 'all' || r.status === filter)
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
-    if (!form.title || !form.propertyId) {
-      showToast('Please fill title and select a property', 'error');
+    if (!form.title || !form.tenantId) {
+      showToast('Please fill title and select a tenant', 'error');
       return;
     }
+    // Auto-derive property from tenant
+    const selectedTenant = tenants.find(t => t.id === form.tenantId);
+    const derivedPropertyId = form.propertyId || selectedTenant?.propertyId || '';
     setSubmitting(true);
     try {
       if (editingRequest) {
@@ -65,12 +72,12 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
           title: form.title,
           description: form.description,
           priority: form.priority,
-          property_id: form.propertyId,
+          property_id: derivedPropertyId,
           tenant_id: form.tenantId || null,
         }, userId);
         showToast('Maintenance request updated!');
       } else {
-        const newReq = await addMaintenanceRequest(form, userId);
+        const newReq = await addMaintenanceRequest({ ...form, propertyId: derivedPropertyId }, userId);
         // Upload pending photo if attached during creation
         if (pendingPhoto && newReq?.id && isSupabaseConfigured()) {
           try {
@@ -97,7 +104,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
   };
 
   const resetForm = () => {
-    setForm({ propertyId: '', tenantId: '', title: '', description: '', priority: 'medium' });
+    setForm({ tenantId: '', propertyId: '', title: '', description: '', priority: 'medium' });
     setShowModal(false);
     setEditingRequest(null);
     setPendingPhoto(null);
@@ -108,8 +115,8 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
   const openEditModal = (req) => {
     setEditingRequest(req);
     setForm({
-      propertyId: req.propertyId || '',
       tenantId: req.tenantId || '',
+      propertyId: req.propertyId || '',
       title: req.title || '',
       description: req.description || '',
       priority: req.priority || 'medium',
@@ -119,7 +126,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
 
   const openAddModal = () => {
     setEditingRequest(null);
-    setForm({ propertyId: '', tenantId: '', title: '', description: '', priority: 'medium' });
+    setForm({ tenantId: '', propertyId: '', title: '', description: '', priority: 'medium' });
     setShowModal(true);
   };
 
@@ -134,9 +141,9 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
     }
   };
 
-  const handlePropertyChange = (propId) => {
-    const tenant = tenants.find(t => t.propertyId === propId);
-    setForm({ ...form, propertyId: propId, tenantId: tenant?.id || '' });
+  const handleTenantChange = (tenantId) => {
+    const tenant = tenants.find(t => t.id === tenantId);
+    setForm({ ...form, tenantId, propertyId: tenant?.propertyId || '' });
   };
 
   const handleQuickPhotoUpload = async (file, reqId) => {
@@ -182,9 +189,9 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
     resolved: { icon: <CheckCircle size={16} />, badge: 'badge-success', label: 'Resolved' },
   };
 
-  const openCount = requests.filter(r => r.status === 'open').length;
-  const inProgressCount = requests.filter(r => r.status === 'in-progress').length;
-  const resolvedCount = requests.filter(r => r.status === 'resolved').length;
+  const openCount = activeRequests.filter(r => r.status === 'open').length;
+  const inProgressCount = activeRequests.filter(r => r.status === 'in-progress').length;
+  const resolvedCount = activeRequests.filter(r => r.status === 'resolved').length;
 
   if (loading) return <CardListSkeleton cards={3} showStats statsCount={3} />;
 
@@ -263,8 +270,8 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                 </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
                   <div style={{ display: 'flex', gap: '16px', fontSize: '0.8rem', color: 'var(--gray-400)' }}>
-                    <span>📍 {(property?.name || property?.address)?.substring(0, 30) || 'Unknown'}</span>
-                    <span>👤 {tenant?.name || 'N/A'}</span>
+                    <span>� {tenant?.name || 'N/A'}</span>
+                    <span>�📍 {(property?.name || property?.address)?.substring(0, 30) || 'Unknown'}</span>
                     <span>📅 {new Date(req.createdAt).toLocaleDateString('en-IN')}</span>
                   </div>
                   <div className="action-buttons">
@@ -346,13 +353,26 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
             </div>
             <form onSubmit={handleSubmit}>
               <div className="form-group">
-                <label className="form-label">Property *</label>
-                <select className="form-select" value={form.propertyId}
-                  onChange={e => handlePropertyChange(e.target.value)}>
-                  <option value="">Select property</option>
-                  {properties.map(p => <option key={p.id} value={p.id}>{p.name ? `${p.name} — ${p.address}` : p.address}</option>)}
+                <label className="form-label">Tenant *</label>
+                <select className="form-select" value={form.tenantId}
+                  onChange={e => handleTenantChange(e.target.value)}>
+                  <option value="">Select tenant</option>
+                  {tenants.map(t => {
+                    const prop = properties.find(p => p.id === t.propertyId);
+                    return <option key={t.id} value={t.id}>{t.name} — {(prop?.name || prop?.address)?.substring(0, 30) || 'No property'}</option>;
+                  })}
                 </select>
               </div>
+              {form.tenantId && (() => {
+                const tenant = tenants.find(t => t.id === form.tenantId);
+                const prop = properties.find(p => p.id === tenant?.propertyId);
+                return prop ? (
+                  <div style={{ padding: '10px 14px', background: '#eef2ff', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem', color: 'var(--primary)' }}>
+                    📍 Property: <strong>{prop.name || prop.address}</strong>
+                    {prop.name && prop.address ? ` — ${prop.address}` : ''}
+                  </div>
+                ) : null;
+              })()}
               <div className="form-group">
                 <label className="form-label">Issue Title *</label>
                 <input className="form-input" value={form.title}
@@ -499,12 +519,12 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                     <span className="detail-value">{viewRequest.description || '—'}</span>
                   </div>
                   <div className="detail-row">
-                    <span className="detail-label">Property</span>
-                    <span className="detail-value">{property?.name || property?.address || '—'}</span>
+                    <span className="detail-label">Tenant</span>
+                    <span className="detail-value" style={{ fontWeight: 600 }}>{tenant?.name || 'N/A'}</span>
                   </div>
                   <div className="detail-row">
-                    <span className="detail-label">Tenant</span>
-                    <span className="detail-value">{tenant?.name || 'N/A'}</span>
+                    <span className="detail-label">Property</span>
+                    <span className="detail-value">{property?.name || property?.address || '—'}</span>
                   </div>
                   <div className="detail-row">
                     <span className="detail-label">Priority</span>
@@ -581,7 +601,7 @@ export default function Maintenance({ showToast, refresh, refreshKey, onNavigate
                 <div style={{ padding: '12px 16px', background: 'var(--gray-50)', borderRadius: '10px', marginBottom: '16px' }}>
                   <div style={{ fontWeight: 700 }}>{deletingRequest.title}</div>
                   <div style={{ fontSize: '0.85rem', color: 'var(--gray-500)', marginTop: '4px' }}>
-                    📍 {property?.name || property?.address || 'Unknown'} · 👤 {tenant?.name || 'N/A'}
+                    � {tenant?.name || 'N/A'} · �📍 {property?.name || property?.address || 'Unknown'}
                   </div>
                   {deletingRequest.photoUrl && (
                     <div style={{ fontSize: '0.8rem', color: '#d97706', marginTop: '6px' }}>

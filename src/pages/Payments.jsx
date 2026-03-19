@@ -47,9 +47,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
       // Auto-overdue: sync payment statuses based on customizable due day
       const today = new Date();
       const dueDay = getRentDueDay(userId);
+      const activeTids = new Set(t.map(tn => tn.id));
       const autoUpdated = [];
       for (const payment of pay) {
-        if (payment.month) {
+        // Only auto-sync status for active tenants
+        if (payment.month && activeTids.has(payment.tenantId)) {
           const [year, month] = payment.month.split('-').map(Number);
           const dueDate = new Date(year, month - 1, dueDay);
           // pending → overdue: due date has passed
@@ -265,8 +267,11 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
     setSelectedMonth(`${newY}-${String(newM).padStart(2, '0')}`);
   };
 
-  // ===== MONTHLY COLLECTION STATS =====
-  const monthlyPayments = payments.filter(p => p.month === selectedMonth);
+  // ===== ACTIVE TENANT IDs (for filtering metrics) =====
+  const activeTenantIds = new Set(tenants.map(t => t.id));
+
+  // ===== MONTHLY COLLECTION STATS (only active tenants) =====
+  const monthlyPayments = payments.filter(p => p.month === selectedMonth && activeTenantIds.has(p.tenantId));
   const monthlyPaid = monthlyPayments.filter(p => p.status === 'paid');
   const monthlyPending = monthlyPayments.filter(p => p.status === 'pending');
   const monthlyOverdue = monthlyPayments.filter(p => p.status === 'overdue');
@@ -361,6 +366,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   };
 
   const filteredPayments = payments
+    .filter(p => activeTenantIds.has(p.tenantId)) // exclude payments for inactive tenants
     .filter(p => filter === 'all' || p.status === filter)
     .filter(p => {
       if (!search) return true;
@@ -457,9 +463,9 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
 
   const formatCurrency = (amt) => `₹${Number(amt).toLocaleString('en-IN')}`;
 
-  const pendingCount = payments.filter(p => p.status === 'pending').length;
-  const overdueCount = payments.filter(p => p.status === 'overdue').length;
-  const paidCount = payments.filter(p => p.status === 'paid').length;
+  const pendingCount = payments.filter(p => p.status === 'pending' && activeTenantIds.has(p.tenantId)).length;
+  const overdueCount = payments.filter(p => p.status === 'overdue' && activeTenantIds.has(p.tenantId)).length;
+  const paidCount = payments.filter(p => p.status === 'paid' && activeTenantIds.has(p.tenantId)).length;
   const currentDueDay = getRentDueDay(userId);
 
   if (loading) return <TableSkeleton rows={5} />;
