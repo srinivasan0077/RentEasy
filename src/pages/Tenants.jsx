@@ -289,7 +289,8 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                     onChange={e => setForm({ ...form, pan: e.target.value })} placeholder="ABCDE1234F" />
                 </div>
               </div>
-              {editingTenant && isSupabaseConfigured() && (
+              {isSupabaseConfigured() && (
+                editingTenant ? (
                 <div className="form-row">
                   <div className="form-group">
                     <FileUpload
@@ -330,6 +331,16 @@ export default function Tenants({ showToast, refresh, refreshKey, onNavigate }) 
                     />
                   </div>
                 </div>
+                ) : (
+                <div style={{
+                  padding: '12px 16px', background: '#f0f9ff', borderRadius: '8px',
+                  marginBottom: '12px', border: '1px solid #bae6fd',
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  fontSize: '0.85rem', color: '#0369a1',
+                }}>
+                  📎 You can upload Aadhaar & PAN documents after saving the tenant.
+                </div>
+                )
               )}
               <div className="form-row">
                 <div className="form-group">
