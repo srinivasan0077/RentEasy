@@ -2,7 +2,7 @@ import { useState } from 'react';
 import {
   Building2, Shield, Zap, FileText, Receipt, CreditCard, MessageCircle,
   Wrench, ChevronRight, Check, Star, ArrowRight, Menu, X, Crown,
-  Users, IndianRupee, Download, Clock, CheckCircle
+  Users, IndianRupee, Download, Clock, CheckCircle, XCircle, Sparkles
 } from 'lucide-react';
 
 export default function LandingPage({ onGetStarted }) {
@@ -65,7 +65,7 @@ export default function LandingPage({ onGetStarted }) {
       name: 'Free',
       price: '₹0',
       period: 'forever',
-      description: 'Perfect for getting started',
+      description: 'For 1–2 properties. Everything you need.',
       color: '#6b7280',
       features: [
         '2 Properties',
@@ -81,7 +81,7 @@ export default function LandingPage({ onGetStarted }) {
       name: 'Pro',
       price: billingPeriod === 'monthly' ? '₹199' : '₹1,999',
       period: billingPeriod === 'monthly' ? '/month' : '/year',
-      description: 'For serious landlords',
+      description: 'For landlords with 3–10 properties',
       color: '#6366f1',
       popular: true,
       saving: billingPeriod === 'annual' ? 'Save ₹389/yr' : null,
@@ -100,7 +100,7 @@ export default function LandingPage({ onGetStarted }) {
       name: 'Business',
       price: billingPeriod === 'monthly' ? '₹499' : '₹4,999',
       period: billingPeriod === 'monthly' ? '/month' : '/year',
-      description: 'For PG owners & agents',
+      description: 'For PG owners, agents & large portfolios',
       color: '#059669',
       saving: billingPeriod === 'annual' ? 'Save ₹989/yr' : null,
       features: [
@@ -200,49 +200,83 @@ export default function LandingPage({ onGetStarted }) {
       <section className="landing-hero">
         <div className="landing-container">
           <div className="landing-hero-badge">
-            <Crown size={14} /> #1 Free Tool for Indian Landlords
+            <Crown size={14} /> Trusted by Indian Landlords & PG Owners
           </div>
           <h1 className="landing-hero-title">
-            Stop Using Excel & WhatsApp<br />
-            <span className="landing-gradient-text">to Manage Your Rentals</span>
+            Know Who Paid Rent.<br />
+            <span className="landing-gradient-text">Generate Receipts. Stay Organised.</span>
           </h1>
           <p className="landing-hero-subtitle">
-            Generate rent agreements, HRA receipts, track payments, and send WhatsApp reminders —
-            all from one dashboard. Built specifically for Indian landlords, PG owners & property managers.
+            RentEasy replaces your Excel sheets, WhatsApp groups & paper notebooks.
+            Track tenants, collect rent, generate tax-ready HRA receipts & legal agreements — from your phone or laptop.
           </p>
           <div className="landing-hero-actions">
             <button className="landing-btn landing-btn-primary landing-btn-lg" onClick={onGetStarted}>
-              Start Free — No Credit Card <ArrowRight size={18} />
+              Create a Rent Receipt Free <ArrowRight size={18} />
             </button>
-            <a href="#features" className="landing-btn landing-btn-outline landing-btn-lg">
+            <a href="#how-it-works" className="landing-btn landing-btn-outline landing-btn-lg">
               See How It Works
             </a>
           </div>
           <div className="landing-hero-stats">
             <div className="landing-stat">
               <div className="landing-stat-number">30 sec</div>
-              <div className="landing-stat-label">To generate a rent agreement</div>
+              <div className="landing-stat-label">To generate a receipt or agreement</div>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat">
               <div className="landing-stat-number">₹0</div>
-              <div className="landing-stat-label">Free forever plan</div>
+              <div className="landing-stat-label">Free plan — no trial, no expiry</div>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat">
               <div className="landing-stat-number">100%</div>
-              <div className="landing-stat-label">HRA & tax compliant</div>
+              <div className="landing-stat-label">HRA & income tax compliant</div>
             </div>
           </div>
           <div className="landing-hero-trust">
             <CheckCircle size={15} />
-            <span>No credit card required</span>
+            <span>No credit card needed</span>
             <span className="landing-trust-dot" />
             <Shield size={15} />
-            <span>Your data stays private</span>
+            <span>Your data is private & encrypted</span>
             <span className="landing-trust-dot" />
             <Clock size={15} />
-            <span>Setup in under 5 minutes</span>
+            <span>Works on phone & laptop</span>
+          </div>
+        </div>
+      </section>
+
+      {/* ===== BEFORE vs AFTER (PAIN SECTION) ===== */}
+      <section className="landing-section landing-section-alt">
+        <div className="landing-container">
+          <div className="landing-section-header">
+            <h2>You're Still Managing Rent<br /><span className="landing-gradient-text">The Hard Way</span></h2>
+            <p>Sound familiar? Here's what changes with RentEasy.</p>
+          </div>
+          <div className="landing-before-after">
+            <div className="landing-ba-column landing-ba-before">
+              <div className="landing-ba-label"><XCircle size={18} /> Without RentEasy</div>
+              <ul>
+                <li>Tracking rent in Excel or a paper notebook</li>
+                <li>Calling tenants awkwardly to ask for rent</li>
+                <li>Paying ₹500–₹2000 to agents for agreements</li>
+                <li>Tenants asking for receipts during tax season — and you scramble</li>
+                <li>Forgetting who paid and who didn't</li>
+                <li>Maintenance complaints lost in WhatsApp chats</li>
+              </ul>
+            </div>
+            <div className="landing-ba-column landing-ba-after">
+              <div className="landing-ba-label"><Sparkles size={18} /> With RentEasy</div>
+              <ul>
+                <li>One dashboard shows all properties, tenants & payments</li>
+                <li>Send polite WhatsApp reminders with one click</li>
+                <li>Generate rent agreements yourself in 30 seconds</li>
+                <li>Create HRA-compliant receipts instantly — tenant downloads PDF</li>
+                <li>Auto-tracks paid, pending & overdue — colour-coded</li>
+                <li>Log complaints, set priority, track resolution</li>
+              </ul>
+            </div>
           </div>
         </div>
       </section>
@@ -251,8 +285,8 @@ export default function LandingPage({ onGetStarted }) {
       <section id="features" className="landing-section">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Stop Juggling WhatsApp, Excel & Paper.<br /><span className="landing-gradient-text">One Dashboard for Everything.</span></h2>
-            <p>Every tool an Indian landlord needs — agreements, receipts, payments, reminders — in one place.</p>
+            <h2>What Can You Actually Do<br /><span className="landing-gradient-text">With RentEasy?</span></h2>
+            <p>Each feature solves a real problem Indian landlords face every month.</p>
           </div>
           <div className="landing-features-grid">
             {features.map((feature, i) => (
@@ -269,11 +303,11 @@ export default function LandingPage({ onGetStarted }) {
       </section>
 
       {/* ===== HOW IT WORKS ===== */}
-      <section className="landing-section landing-section-alt">
+      <section id="how-it-works" className="landing-section landing-section-alt">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Up and Running in<br /><span className="landing-gradient-text">Under 5 Minutes</span></h2>
-            <p>No training. No setup fees. No tech skills needed.</p>
+            <h2>How Does It Work?<br /><span className="landing-gradient-text">3 Simple Steps</span></h2>
+            <p>If you can use WhatsApp, you can use RentEasy. No training needed.</p>
           </div>
           <div className="landing-steps">
             <div className="landing-step">
@@ -301,8 +335,8 @@ export default function LandingPage({ onGetStarted }) {
       <section id="pricing" className="landing-section">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Simple, Transparent<br /><span className="landing-gradient-text">Pricing</span></h2>
-            <p>No hidden fees. No surprises. Cancel anytime.</p>
+            <h2>Pick a Plan That<br /><span className="landing-gradient-text">Fits Your Needs</span></h2>
+            <p>Start free. Upgrade only when your portfolio grows. No hidden fees.</p>
             <div className="landing-billing-toggle">
               <button className={billingPeriod === 'monthly' ? 'active' : ''} onClick={() => setBillingPeriod('monthly')}>Monthly</button>
               <button className={billingPeriod === 'annual' ? 'active' : ''} onClick={() => setBillingPeriod('annual')}>
@@ -367,6 +401,32 @@ export default function LandingPage({ onGetStarted }) {
         </div>
       </section>
 
+      {/* ===== TRUST & CREDIBILITY ===== */}
+      <section className="landing-section">
+        <div className="landing-container">
+          <div className="landing-section-header">
+            <h2>Why Landlords<br /><span className="landing-gradient-text">Trust RentEasy</span></h2>
+          </div>
+          <div className="landing-trust-grid">
+            <div className="landing-trust-card">
+              <div className="landing-trust-icon"><Shield size={24} /></div>
+              <h3>Your Data is Safe</h3>
+              <p>All data is encrypted with enterprise-grade security. Row-level isolation means only you see your data. We never access, sell, or share it.</p>
+            </div>
+            <div className="landing-trust-card">
+              <div className="landing-trust-icon"><Zap size={24} /></div>
+              <h3>Built by an Engineer, for Landlords</h3>
+              <p>Created by an Indian software engineer who saw landlords struggling with Excel and paper. Every feature solves a real problem — no bloat.</p>
+            </div>
+            <div className="landing-trust-card">
+              <div className="landing-trust-icon"><CheckCircle size={24} /></div>
+              <h3>No Tech Skills Needed</h3>
+              <p>If you can use WhatsApp, you can use RentEasy. No training, no manuals, no learning curve. Most landlords are set up in under 5 minutes.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* ===== FAQ ===== */}
       <section id="faq" className="landing-section">
         <div className="landing-container" style={{ maxWidth: 720 }}>
@@ -388,11 +448,17 @@ export default function LandingPage({ onGetStarted }) {
       {/* ===== CTA BANNER ===== */}
       <section className="landing-cta">
         <div className="landing-container">
-          <h2>Your Tenants Won't Wait. Neither Should You.</h2>
-          <p>Set up your rental dashboard in under 5 minutes. Free forever for up to 2 properties — no credit card, no catch.</p>
+          <h2>Every Month You Delay, You're Losing Time & Money</h2>
+          <p>Agents charge ₹500–₹2000 per agreement. Tenants pester you for receipts. Rent is late and you forget who paid. Fix it all today — in 5 minutes.</p>
           <button className="landing-btn landing-btn-white landing-btn-lg" onClick={onGetStarted}>
             Create My Free Account <ArrowRight size={18} />
           </button>
+          <div className="landing-cta-reassurance">
+            <span><Check size={14} /> Free forever plan</span>
+            <span><Check size={14} /> No credit card</span>
+            <span><Check size={14} /> Takes 2 minutes</span>
+            <span><Check size={14} /> Cancel anytime</span>
+          </div>
         </div>
       </section>
 
