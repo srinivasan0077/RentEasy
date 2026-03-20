@@ -14,7 +14,7 @@ const STORAGE_KEYS = {
   AGREEMENTS: 'renteasy_agreements',
   MAINTENANCE: 'renteasy_maintenance',
   RECEIPTS: 'renteasy_receipts',
-  LANDLORD_PROFILE: 'renteasy_landlord_profile',
+  LANDLORD_PROFILE: 'renteasy_landlord_profile', // legacy — kept for one-time migration only
 };
 
 function getLocal(key) {
@@ -710,30 +710,211 @@ export function loadDemoData() {
 }
 
 // ========================
-// LANDLORD PROFILE
+// LANDLORD PROFILE (Supabase-only, persisted across browsers/devices)
 // ========================
-export function getLandlordProfile(userId) {
+
+// Get landlord profile from Supabase
+export async function getLandlordProfile(userId) {
+  if (!isSupabaseConfigured() || !userId) return null;
+
   try {
-    const key = userId ? `${STORAGE_KEYS.LANDLORD_PROFILE}_${userId}` : STORAGE_KEYS.LANDLORD_PROFILE;
-    const data = localStorage.getItem(key);
-    return data ? JSON.parse(data) : null;
-  } catch { return null; }
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('landlord_name, landlord_phone, landlord_pan, landlord_aadhaar, landlord_address, rent_due_day')
+      .eq('id', userId)
+      .single();
+
+    if (!error && data && (data.landlord_name || data.landlord_pan)) {
+      return {
+        name: data.landlord_name || '',
+        phone: data.landlord_phone || '',
+        pan: data.landlord_pan || '',
+        aadhaar: data.landlord_aadhaar || '',
+        address: data.landlord_address || '',
+        rentDueDay: data.rent_due_day || 5,
+      };
+    }
+  } catch (err) {
+    console.warn('Failed to fetch landlord profile:', err);
+  }
+  return null;
 }
 
-export function saveLandlordProfile(profile, userId) {
-  const key = userId ? `${STORAGE_KEYS.LANDLORD_PROFILE}_${userId}` : STORAGE_KEYS.LANDLORD_PROFILE;
-  localStorage.setItem(key, JSON.stringify({
-    name: profile.name || '',
-    phone: profile.phone || '',
-    pan: profile.pan || '',
-    aadhaar: profile.aadhaar || '',
-    address: profile.address || '',
-    rentDueDay: Number(profile.rentDueDay) || 5,
-    updatedAt: new Date().toISOString(),
-  }));
+// Save landlord profile to Supabase
+export async function saveLandlordProfile(profile, userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({
+        landlord_name: profile.name || '',
+        landlord_phone: profile.phone || '',
+        landlord_pan: profile.pan || '',
+        landlord_aadhaar: profile.aadhaar || '',
+        landlord_address: profile.address || '',
+        rent_due_day: Number(profile.rentDueDay) || 5,
+      })
+      .eq('id', userId);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('Failed to save landlord profile:', err);
+    throw err;
+  }
 }
 
-export function getRentDueDay(userId) {
-  const profile = getLandlordProfile(userId);
-  return profile?.rentDueDay || 5;
+// Clear landlord profile in Supabase
+export async function clearLandlordProfile(userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  try {
+    await supabase
+      .from('profiles')
+      .update({
+        landlord_name: '',
+        landlord_phone: '',
+        landlord_pan: '',
+        landlord_aadhaar: '',
+        landlord_address: '',
+        rent_due_day: 5,
+      })
+      .eq('id', userId);
+  } catch (err) {
+    console.error('Failed to clear landlord profile:', err);
+  }
+}
+
+export async function getRentDueDay(userId) {
+  if (!isSupabaseConfigured() || !userId) return 5;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('rent_due_day')
+      .eq('id', userId)
+      .single();
+
+    if (!error && data) return data.rent_due_day || 5;
+  } catch (err) {
+    console.warn('Failed to fetch rent due day:', err);
+  }
+  return 5;
+}
+
+// One-time migration: move any leftover localStorage data to Supabase, then clean up
+export async function migrateLocalLandlordProfile(userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  const key = `${STORAGE_KEYS.LANDLORD_PROFILE}_${userId}`;
+  const legacyKey = STORAGE_KEYS.LANDLORD_PROFILE;
+
+  try {
+    const raw = localStorage.getItem(key) || localStorage.getItem(legacyKey);
+    if (!raw) return;
+
+    const local = JSON.parse(raw);
+    if (!local || (!local.name && !local.pan)) return;
+
+    // Check if Supabase already has data (don't overwrite)
+    const existing = await getLandlordProfile(userId);
+    if (existing) {
+      // Already has data in Supabase — just clean up localStorage
+      localStorage.removeItem(key);
+      localStorage.removeItem(legacyKey);
+      return;
+    }
+
+    // Migrate to Supabase
+    await saveLandlordProfile(local, userId);
+
+    // Clean up localStorage
+    localStorage.removeItem(key);
+    localStorage.removeItem(legacyKey);
+    console.log('Migrated landlord profile from localStorage to Supabase ✅');
+  } catch (err) {
+    console.warn('Landlord profile migration failed:', err);
+  }
+}
+
+// ========================
+// LANDLORD SIGNATURE (Supabase-only, syncs across devices)
+// ========================
+
+export async function getLandlordSignature(userId) {
+  if (!isSupabaseConfigured() || !userId) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('landlord_signature')
+      .eq('id', userId)
+      .single();
+
+    if (!error && data && data.landlord_signature) {
+      return data.landlord_signature;
+    }
+  } catch (err) {
+    console.warn('Failed to fetch landlord signature:', err);
+  }
+  return null;
+}
+
+export async function saveLandlordSignature(dataUrl, userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  // Guard: reject if data URL exceeds 300KB (base64 of a ~200KB image)
+  const MAX_SIGNATURE_SIZE = 300 * 1024;
+  if (dataUrl && dataUrl.length > MAX_SIGNATURE_SIZE) {
+    throw new Error(`Signature too large (${Math.round(dataUrl.length / 1024)}KB). Max allowed: ${MAX_SIGNATURE_SIZE / 1024}KB.`);
+  }
+
+  try {
+    const { error } = await supabase
+      .from('profiles')
+      .update({ landlord_signature: dataUrl || '' })
+      .eq('id', userId);
+
+    if (error) throw error;
+  } catch (err) {
+    console.error('Failed to save landlord signature:', err);
+    throw err;
+  }
+}
+
+export async function clearLandlordSignature(userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  try {
+    await supabase
+      .from('profiles')
+      .update({ landlord_signature: '' })
+      .eq('id', userId);
+  } catch (err) {
+    console.warn('Failed to clear landlord signature:', err);
+  }
+}
+
+// One-time migration: move signature from localStorage to Supabase
+export async function migrateLocalSignature(userId) {
+  if (!isSupabaseConfigured() || !userId) return;
+
+  const legacyKey = 'renteasy_landlord_signature';
+  try {
+    const raw = localStorage.getItem(legacyKey);
+    if (!raw) return;
+
+    // Check if Supabase already has a signature
+    const existing = await getLandlordSignature(userId);
+    if (existing) {
+      localStorage.removeItem(legacyKey);
+      return;
+    }
+
+    await saveLandlordSignature(raw, userId);
+    localStorage.removeItem(legacyKey);
+    console.log('Migrated landlord signature from localStorage to Supabase ✅');
+  } catch (err) {
+    console.warn('Signature migration failed:', err);
+  }
 }

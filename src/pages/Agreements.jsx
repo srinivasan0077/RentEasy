@@ -69,24 +69,29 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
   const [submitting, setSubmitting] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [savedLandlord, setSavedLandlord] = useState(null);
+  const [rentDueDay, setRentDueDay] = useState(5);
 
   useEffect(() => {
     async function load() {
-      const [t, p, a] = await Promise.all([
+      const [t, p, a, landlord, dueDay] = await Promise.all([
         getTenants(userId),
         getProperties(userId),
         getAgreements(userId),
+        getLandlordProfile(userId),
+        getRentDueDay(userId),
       ]);
       setTenants(t);
       setProperties(p);
       setAgreements(a);
+      setSavedLandlord(landlord);
+      setRentDueDay(dueDay);
       setLoading(false);
     }
     load();
   }, [userId, refreshKey]);
 
   // Landlord profile auto-fill
-  const savedLandlord = getLandlordProfile(userId);
   const hasLandlordProfile = savedLandlord && (savedLandlord.name || savedLandlord.pan);
 
   const fillFromProfile = () => {
@@ -102,16 +107,15 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
   };
 
   // Offer to save landlord details after generating agreement
-  const maybeSaveLandlordProfile = () => {
+  const maybeSaveLandlordProfile = async () => {
     if (form.ownerName && form.ownerPan) {
-      const current = getLandlordProfile(userId);
-      const changed = !current ||
-        current.name !== form.ownerName ||
-        current.phone !== form.ownerPhone ||
-        current.pan !== form.ownerPan ||
-        current.aadhaar !== form.ownerAadhaar;
+      const changed = !savedLandlord ||
+        savedLandlord.name !== form.ownerName ||
+        savedLandlord.phone !== form.ownerPhone ||
+        savedLandlord.pan !== form.ownerPan ||
+        savedLandlord.aadhaar !== form.ownerAadhaar;
       if (changed) {
-        saveLandlordProfile({
+        await saveLandlordProfile({
           name: form.ownerName,
           phone: form.ownerPhone,
           pan: form.ownerPan,
@@ -257,7 +261,7 @@ export default function Agreements({ showToast, refresh, refreshKey, onNavigate 
     const depositNum = Number(form.deposit);
 
     // Get customizable rent due day
-    const dueDay = getRentDueDay(userId);
+    const dueDay = rentDueDay;
     const ordinal = (n) => {
       const s = ['th','st','nd','rd'];
       const v = n % 100;

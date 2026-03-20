@@ -1,13 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { Download, Receipt, FileText, Upload, X, Pen, ClipboardList } from 'lucide-react';
-import { getTenants, getProperties, getPayments, addReceipt, getReceipts, getLandlordProfile, saveLandlordProfile } from '../store';
+import { getTenants, getProperties, getPayments, addReceipt, getReceipts, getLandlordProfile, saveLandlordProfile, getLandlordSignature, saveLandlordSignature, clearLandlordSignature, migrateLocalSignature } from '../store';
 import { useAuth } from '../context/AuthContext';
 import Pagination from '../components/Pagination';
 import UpgradeModal from '../components/UpgradeModal';
 import { FormSkeleton } from '../components/SkeletonLoader';
 import jsPDF from 'jspdf';
-
-const SIGNATURE_STORAGE_KEY = 'renteasy_landlord_signature';
 
 export default function Receipts({ showToast, refresh, refreshKey, onNavigate }) {
   const { user, checkLimit, currentPlan } = useAuth();
@@ -28,12 +26,7 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
   const [pageSize, setPageSize] = useState(10);
   const [signatureImg, setSignatureImg] = useState(null);
   const sigFileRef = useRef(null);
-
-  // Load saved signature from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(SIGNATURE_STORAGE_KEY);
-    if (saved) setSignatureImg(saved);
-  }, []);
+  const [savedLandlord, setSavedLandlord] = useState(null);
 
   const handleSignatureUpload = (e) => {
     const file = e.target.files?.[0];
@@ -42,47 +35,57 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
       showToast('Please upload an image file (PNG, JPG)', 'error');
       return;
     }
-    if (file.size > 500 * 1024) {
-      showToast('Signature image must be under 500KB', 'error');
+    if (file.size > 200 * 1024) {
+      showToast('Signature image must be under 200KB', 'error');
       return;
     }
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       const dataUrl = evt.target.result;
+      // Safety check: base64 data URL should not exceed 300KB (~200KB file + encoding overhead)
+      if (dataUrl.length > 300 * 1024) {
+        showToast('Signature data too large. Please use a smaller image.', 'error');
+        return;
+      }
       setSignatureImg(dataUrl);
-      localStorage.setItem(SIGNATURE_STORAGE_KEY, dataUrl);
-      showToast('Signature uploaded! It will be embedded in all receipts ✍️');
+      await saveLandlordSignature(dataUrl, userId);
+      showToast('Signature uploaded & synced! It will be embedded in all receipts ✍️');
     };
     reader.readAsDataURL(file);
-    // Reset input so same file can be re-uploaded
     e.target.value = '';
   };
 
-  const removeSignature = () => {
+  const removeSignature = async () => {
     setSignatureImg(null);
-    localStorage.removeItem(SIGNATURE_STORAGE_KEY);
+    await clearLandlordSignature(userId);
     showToast('Signature removed');
   };
 
   useEffect(() => {
     async function load() {
-      const [t, p, pay, r] = await Promise.all([
+      // One-time migration of localStorage signature
+      await migrateLocalSignature(userId);
+
+      const [t, p, pay, r, landlord, sig] = await Promise.all([
         getTenants(userId),
         getProperties(userId),
         getPayments(userId),
         getReceipts(userId),
+        getLandlordProfile(userId),
+        getLandlordSignature(userId),
       ]);
       setTenants(t);
       setProperties(p);
       setPayments(pay);
       setReceipts(r);
+      setSavedLandlord(landlord);
+      if (sig) setSignatureImg(sig);
       setLoading(false);
     }
     load();
   }, [userId, refreshKey]);
 
   // Landlord profile auto-fill
-  const savedLandlord = getLandlordProfile(userId);
   const hasLandlordProfile = savedLandlord && (savedLandlord.name || savedLandlord.pan);
 
   const fillFromProfile = () => {
@@ -97,15 +100,14 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
   };
 
   // Auto-save landlord details when generating receipt
-  const maybeSaveLandlordProfile = () => {
+  const maybeSaveLandlordProfile = async () => {
     if (form.landlordName && form.landlordPan) {
-      const current = getLandlordProfile(userId);
-      const changed = !current ||
-        current.name !== form.landlordName ||
-        current.pan !== form.landlordPan ||
-        current.address !== form.landlordAddress;
+      const changed = !savedLandlord ||
+        savedLandlord.name !== form.landlordName ||
+        savedLandlord.pan !== form.landlordPan ||
+        savedLandlord.address !== form.landlordAddress;
       if (changed) {
-        saveLandlordProfile({
+        await saveLandlordProfile({
           name: form.landlordName,
           pan: form.landlordPan,
           address: form.landlordAddress,
@@ -516,7 +518,7 @@ export default function Receipts({ showToast, refresh, refreshKey, onNavigate })
                   Upload signature image
                 </div>
                 <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>
-                  PNG or JPG, max 500KB • Saved locally for all future receipts
+                  PNG or JPG, max 200KB • Synced across all devices
                 </div>
               </div>
             </div>

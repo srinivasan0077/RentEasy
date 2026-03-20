@@ -27,6 +27,7 @@ export function AuthProvider({ children }) {
   const [isLocal, setIsLocal] = useState(false);
   const [storageUsedMB, setStorageUsedMB] = useState(0);
   const [storageLimitMB, setStorageLimitMB] = useState(0); // server-side limit (includes admin bonuses)
+  const [passwordRecovery, setPasswordRecovery] = useState(false);
 
   const fetchProfile = useCallback(async (userId) => {
     try {
@@ -109,6 +110,12 @@ export function AuthProvider({ children }) {
       async (event, session) => {
         console.log('Auth event:', event, session?.user?.email);
 
+        if (event === 'PASSWORD_RECOVERY') {
+          setPasswordRecovery(true);
+          setLoading(false);
+          return;
+        }
+
         if (event === 'SIGNED_OUT') {
           setUser(null);
           setProfile(null);
@@ -168,17 +175,15 @@ export function AuthProvider({ children }) {
     return { data, error };
   };
 
-  const signInWithOTP = async (phone) => {
-    const { data, error } = await supabase.auth.signInWithOtp({ phone: `+91${phone}` });
+  const resetPassword = async (email) => {
+    const { data, error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/#reset-password`,
+    });
     return { data, error };
   };
 
-  const verifyOTP = async (phone, token) => {
-    const { data, error } = await supabase.auth.verifyOtp({
-      phone: `+91${phone}`,
-      token,
-      type: 'sms',
-    });
+  const updatePassword = async (newPassword) => {
+    const { data, error } = await supabase.auth.updateUser({ password: newPassword });
     return { data, error };
   };
 
@@ -265,10 +270,12 @@ export function AuthProvider({ children }) {
     storageLimitMB,
     signUp,
     signIn,
-    signInWithOTP,
-    verifyOTP,
+    resetPassword,
+    updatePassword,
     signOut,
     updateProfile,
+    passwordRecovery,
+    setPasswordRecovery,
     getPlanLimits,
     isTrialExpired,
     getDaysLeft,

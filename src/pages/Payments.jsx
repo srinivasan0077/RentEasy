@@ -36,6 +36,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   const [bulkStartMonth, setBulkStartMonth] = useState(currentMonth);
   const [bulkEndMonth, setBulkEndMonth] = useState(currentMonth);
   const [bulkTenants, setBulkTenants] = useState([]); // which tenants to include
+  const [currentDueDay, setCurrentDueDay] = useState(5);
 
   useEffect(() => {
     async function load() {
@@ -46,7 +47,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
       ]);
       // Auto-overdue: sync payment statuses based on customizable due day
       const today = new Date();
-      const dueDay = getRentDueDay(userId);
+      const dueDay = await getRentDueDay(userId);
       const activeTids = new Set(t.map(tn => tn.id));
       const autoUpdated = [];
       for (const payment of pay) {
@@ -72,6 +73,7 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
       setPayments(pay);
       setTenants(t);
       setProperties(p);
+      setCurrentDueDay(dueDay);
       setLoading(false);
     }
     load();
@@ -464,7 +466,6 @@ export default function Payments({ showToast, refresh, refreshKey, onNavigate })
   const pendingCount = payments.filter(p => p.status === 'pending' && activeTenantIds.has(p.tenantId)).length;
   const overdueCount = payments.filter(p => p.status === 'overdue' && activeTenantIds.has(p.tenantId)).length;
   const paidCount = payments.filter(p => p.status === 'paid' && activeTenantIds.has(p.tenantId)).length;
-  const currentDueDay = getRentDueDay(userId);
 
   if (loading) return <TableSkeleton rows={5} />;
 

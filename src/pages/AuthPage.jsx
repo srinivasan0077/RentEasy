@@ -1,17 +1,23 @@
 import { useState } from 'react';
-import { Building2, Mail, Lock, User, Phone, ArrowRight, Eye, EyeOff, ArrowLeft } from 'lucide-react';
+import { Building2, Mail, Lock, User, ArrowRight, Eye, EyeOff, ArrowLeft, KeyRound } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 export default function AuthPage({ showToast, onBack }) {
-  const { signIn, signUp, signInWithOTP, verifyOTP, isLocal } = useAuth();
-  const [mode, setMode] = useState('login'); // login, signup, otp, verify-otp
+  const { signIn, signUp, resetPassword, updatePassword, isLocal, passwordRecovery, setPasswordRecovery } = useAuth();
+  const [mode, setMode] = useState(passwordRecovery ? 'reset-password' : 'login'); // login, signup, forgot, reset-password
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [phone, setPhone] = useState('');
-  const [form, setForm] = useState({ email: '', password: '', fullName: '', otp: '' });
+  const [form, setForm] = useState({ email: '', password: '', fullName: '', newPassword: '', confirmPassword: '' });
 
   // In local mode, auto-login
   if (isLocal) return null;
+
+  // Detect password recovery mode from URL hash (backup for the context flag)
+  useState(() => {
+    if (window.location.hash.includes('reset-password') || window.location.hash.includes('type=recovery') || passwordRecovery) {
+      setMode('reset-password');
+    }
+  });
 
   const handleEmailLogin = async (e) => {
     e.preventDefault();
@@ -32,22 +38,30 @@ export default function AuthPage({ showToast, onBack }) {
     setLoading(false);
   };
 
-  const handleSendOTP = async (e) => {
+  const handleForgotPassword = async (e) => {
     e.preventDefault();
-    if (phone.length !== 10) { showToast('Enter valid 10-digit phone number', 'error'); return; }
+    if (!form.email) { showToast('Please enter your email address', 'error'); return; }
     setLoading(true);
-    const { error } = await signInWithOTP(phone);
+    const { error } = await resetPassword(form.email);
     if (error) showToast(error.message, 'error');
-    else { showToast('OTP sent to +91' + phone, 'info'); setMode('verify-otp'); }
+    else showToast('Password reset link sent to your email! Check your inbox. 📧', 'info');
     setLoading(false);
   };
 
-  const handleVerifyOTP = async (e) => {
+  const handleResetPassword = async (e) => {
     e.preventDefault();
+    if (form.newPassword.length < 6) { showToast('Password must be at least 6 characters', 'error'); return; }
+    if (form.newPassword !== form.confirmPassword) { showToast('Passwords do not match', 'error'); return; }
     setLoading(true);
-    const { error } = await verifyOTP(phone, form.otp);
+    const { error } = await updatePassword(form.newPassword);
     if (error) showToast(error.message, 'error');
-    else showToast('Welcome! 🎉');
+    else {
+      showToast('Password updated successfully! You can now login. ✅');
+      setMode('login');
+      setForm({ ...form, newPassword: '', confirmPassword: '' });
+      if (setPasswordRecovery) setPasswordRecovery(false);
+      window.location.hash = '';
+    }
     setLoading(false);
   };
 
@@ -90,15 +104,15 @@ export default function AuthPage({ showToast, onBack }) {
 
         {/* Card */}
         <div className="card" style={{ boxShadow: '0 20px 60px rgba(0,0,0,0.1)' }}>
-          {/* Tabs */}
-          <div className="tab-buttons" style={{ marginBottom: '24px' }}>
-            <button className={`tab-btn ${mode === 'login' ? 'active' : ''}`}
-              onClick={() => setMode('login')}>Login</button>
-            <button className={`tab-btn ${mode === 'signup' ? 'active' : ''}`}
-              onClick={() => setMode('signup')}>Sign Up</button>
-            <button className={`tab-btn ${mode === 'otp' || mode === 'verify-otp' ? 'active' : ''}`}
-              onClick={() => setMode('otp')}>Phone OTP</button>
-          </div>
+          {/* Tabs — only show for login/signup, not forgot/reset */}
+          {(mode === 'login' || mode === 'signup') && (
+            <div className="tab-buttons" style={{ marginBottom: '24px' }}>
+              <button className={`tab-btn ${mode === 'login' ? 'active' : ''}`}
+                onClick={() => setMode('login')}>Login</button>
+              <button className={`tab-btn ${mode === 'signup' ? 'active' : ''}`}
+                onClick={() => setMode('signup')}>Sign Up</button>
+            </div>
+          )}
 
           {/* Email Login */}
           {mode === 'login' && (
@@ -129,6 +143,15 @@ export default function AuthPage({ showToast, onBack }) {
                 style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
                 {loading ? 'Logging in...' : 'Login'} <ArrowRight size={16} />
               </button>
+              <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                <button type="button" onClick={() => setMode('forgot')}
+                  style={{
+                    background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer',
+                    fontSize: '0.85rem', fontWeight: 500, textDecoration: 'underline',
+                  }}>
+                  Forgot your password?
+                </button>
+              </div>
             </form>
           )}
 
@@ -172,53 +195,94 @@ export default function AuthPage({ showToast, onBack }) {
             </form>
           )}
 
-          {/* Phone OTP */}
-          {mode === 'otp' && (
-            <form onSubmit={handleSendOTP}>
-              <div className="form-group">
-                <label className="form-label">Mobile Number</label>
-                <div style={{ position: 'relative', display: 'flex', gap: '8px' }}>
-                  <div style={{
-                    padding: '10px 12px', background: '#f3f4f6', borderRadius: '8px',
-                    border: '1px solid #d1d5db', fontSize: '0.9rem', fontWeight: 600, color: '#374151',
-                  }}>+91</div>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <Phone size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
-                    <input className="form-input" value={phone}
-                      onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                      placeholder="9876543210" style={{ paddingLeft: '38px' }} required />
+          {/* Forgot Password */}
+          {mode === 'forgot' && (
+            <div>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '12px',
+                  background: '#fef3c7', display: 'inline-flex', alignItems: 'center',
+                  justifyContent: 'center', marginBottom: '12px',
+                }}>
+                  <KeyRound size={24} style={{ color: '#d97706' }} />
+                </div>
+                <h3 style={{ margin: 0, color: 'var(--gray-900)' }}>Forgot Password?</h3>
+                <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '8px 0 0' }}>
+                  Enter your email and we'll send you a reset link
+                </p>
+              </div>
+              <form onSubmit={handleForgotPassword}>
+                <div className="form-group">
+                  <label className="form-label">Email</label>
+                  <div style={{ position: 'relative' }}>
+                    <Mail size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                    <input className="form-input" type="email" value={form.email}
+                      onChange={e => setForm({ ...form, email: e.target.value })}
+                      placeholder="you@example.com" style={{ paddingLeft: '38px' }} required />
                   </div>
                 </div>
+                <button type="submit" className="btn btn-primary" disabled={loading}
+                  style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
+                  {loading ? 'Sending...' : 'Send Reset Link'} <Mail size={16} />
+                </button>
+              </form>
+              <div style={{ textAlign: 'center', marginTop: '16px' }}>
+                <button type="button" onClick={() => setMode('login')}
+                  style={{
+                    background: 'none', border: 'none', color: '#6366f1', cursor: 'pointer',
+                    fontSize: '0.85rem', fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: '4px',
+                  }}>
+                  <ArrowLeft size={14} /> Back to Login
+                </button>
               </div>
-              <button type="submit" className="btn btn-primary" disabled={loading}
-                style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
-                {loading ? 'Sending OTP...' : 'Send OTP'} <ArrowRight size={16} />
-              </button>
-            </form>
+            </div>
           )}
 
-          {/* Verify OTP */}
-          {mode === 'verify-otp' && (
-            <form onSubmit={handleVerifyOTP}>
-              <p style={{ textAlign: 'center', color: '#6b7280', marginBottom: '16px' }}>
-                OTP sent to <strong>+91 {phone}</strong>
-              </p>
-              <div className="form-group">
-                <label className="form-label">Enter 6-digit OTP</label>
-                <input className="form-input" value={form.otp}
-                  onChange={e => setForm({ ...form, otp: e.target.value.replace(/\D/g, '').slice(0, 6) })}
-                  placeholder="123456" style={{ textAlign: 'center', fontSize: '1.5rem', letterSpacing: '0.5em', fontWeight: 700 }}
-                  maxLength={6} required />
+          {/* Reset Password (after clicking email link) */}
+          {mode === 'reset-password' && (
+            <div>
+              <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{
+                  width: '48px', height: '48px', borderRadius: '12px',
+                  background: '#dcfce7', display: 'inline-flex', alignItems: 'center',
+                  justifyContent: 'center', marginBottom: '12px',
+                }}>
+                  <Lock size={24} style={{ color: '#16a34a' }} />
+                </div>
+                <h3 style={{ margin: 0, color: 'var(--gray-900)' }}>Set New Password</h3>
+                <p style={{ fontSize: '0.85rem', color: '#6b7280', margin: '8px 0 0' }}>
+                  Choose a strong password for your account
+                </p>
               </div>
-              <button type="submit" className="btn btn-primary" disabled={loading}
-                style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
-                {loading ? 'Verifying...' : 'Verify & Login'} <ArrowRight size={16} />
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setMode('otp')}
-                style={{ width: '100%', justifyContent: 'center', marginTop: '8px' }}>
-                Resend OTP
-              </button>
-            </form>
+              <form onSubmit={handleResetPassword}>
+                <div className="form-group">
+                  <label className="form-label">New Password (min 6 chars)</label>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                    <input className="form-input" type={showPassword ? 'text' : 'password'} value={form.newPassword}
+                      onChange={e => setForm({ ...form, newPassword: e.target.value })}
+                      placeholder="••••••••" style={{ paddingLeft: '38px', paddingRight: '38px' }} required />
+                    <button type="button" onClick={() => setShowPassword(!showPassword)}
+                      style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af' }}>
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Confirm Password</label>
+                  <div style={{ position: 'relative' }}>
+                    <Lock size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#9ca3af' }} />
+                    <input className="form-input" type="password" value={form.confirmPassword}
+                      onChange={e => setForm({ ...form, confirmPassword: e.target.value })}
+                      placeholder="••••••••" style={{ paddingLeft: '38px' }} required />
+                  </div>
+                </div>
+                <button type="submit" className="btn btn-primary" disabled={loading}
+                  style={{ width: '100%', justifyContent: 'center', padding: '12px' }}>
+                  {loading ? 'Updating...' : 'Update Password'} <ArrowRight size={16} />
+                </button>
+              </form>
+            </div>
           )}
         </div>
 

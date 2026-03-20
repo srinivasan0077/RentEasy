@@ -32,7 +32,7 @@ const NAV_ITEMS = [
 const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
 
 function AppContent() {
-  const { user, profile, loading, isLocal, signOut, getDaysLeft, isTrialExpired } = useAuth();
+  const { user, profile, loading, isLocal, signOut, getDaysLeft, isTrialExpired, passwordRecovery } = useAuth();
   const [currentPage, setCurrentPage] = useState('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
@@ -57,6 +57,16 @@ function AppContent() {
           <h2 style={{ color: 'var(--gray-700)' }}>Loading RentEasy...</h2>
         </div>
       </div>
+    );
+  }
+
+  // Show password reset form when user clicks the reset link from email
+  if (passwordRecovery) {
+    return (
+      <>
+        <AuthPage showToast={showToast} />
+        <Toast toasts={toasts} />
+      </>
     );
   }
 

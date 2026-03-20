@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { User, Save, Trash2 } from 'lucide-react';
-import { getLandlordProfile, saveLandlordProfile } from '../store';
+import { getLandlordProfile, saveLandlordProfile, clearLandlordProfile, migrateLocalLandlordProfile } from '../store';
 import { useAuth } from '../context/AuthContext';
 
 export default function LandlordProfile({ showToast }) {
@@ -11,23 +11,33 @@ export default function LandlordProfile({ showToast }) {
     name: '', phone: '', pan: '', aadhaar: '', address: '', rentDueDay: 5,
   });
   const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    const profile = getLandlordProfile(userId);
-    if (profile) {
-      setForm({
-        name: profile.name || '',
-        phone: profile.phone || '',
-        pan: profile.pan || '',
-        aadhaar: profile.aadhaar || '',
-        address: profile.address || '',
-        rentDueDay: profile.rentDueDay || 5,
-      });
-      setSaved(true);
-    }
+    const load = async () => {
+      setLoading(true);
+      // One-time: migrate any leftover localStorage data to Supabase
+      await migrateLocalLandlordProfile(userId);
+
+      const profile = await getLandlordProfile(userId);
+      if (profile) {
+        setForm({
+          name: profile.name || '',
+          phone: profile.phone || '',
+          pan: profile.pan || '',
+          aadhaar: profile.aadhaar || '',
+          address: profile.address || '',
+          rentDueDay: profile.rentDueDay || 5,
+        });
+        setSaved(true);
+      }
+      setLoading(false);
+    };
+    load();
   }, [userId]);
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
     if (!form.name) {
       showToast('Please enter your name', 'error');
@@ -37,15 +47,16 @@ export default function LandlordProfile({ showToast }) {
       showToast('Invalid PAN format. Expected: ABCDE1234F', 'error');
       return;
     }
-    saveLandlordProfile(form, userId);
+    setSaving(true);
+    await saveLandlordProfile(form, userId);
     setSaved(true);
+    setSaving(false);
     showToast('Landlord profile saved! It will auto-fill in Agreements & Receipts ✅');
   };
 
-  const handleClear = () => {
+  const handleClear = async () => {
     if (confirm('Clear saved landlord profile? You can re-enter it anytime.')) {
-      const key = userId ? `renteasy_landlord_profile_${userId}` : 'renteasy_landlord_profile';
-      localStorage.removeItem(key);
+      await clearLandlordProfile(userId);
       setForm({ name: '', phone: '', pan: '', aadhaar: '', address: '', rentDueDay: 5 });
       setSaved(false);
       showToast('Landlord profile cleared');
@@ -57,11 +68,17 @@ export default function LandlordProfile({ showToast }) {
       <div className="page-header">
         <div>
           <h2>Landlord Profile</h2>
-          <p>Save your details once — they'll auto-fill in Agreements & Rent Receipts</p>
+          <p>Save your details once — they'll auto-fill in Agreements & Rent Receipts across all devices</p>
         </div>
       </div>
 
       <div className="card" style={{ maxWidth: '640px' }}>
+        {loading ? (
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--gray-400)' }}>
+            Loading profile...
+          </div>
+        ) : (
+        <>
         <div style={{
           display: 'flex', alignItems: 'center', gap: '12px',
           marginBottom: '24px', paddingBottom: '16px',
@@ -77,7 +94,7 @@ export default function LandlordProfile({ showToast }) {
           <div>
             <h3 style={{ margin: 0 }}>Your Landlord Details</h3>
             <p style={{ margin: 0, fontSize: '0.8rem', color: 'var(--gray-400)' }}>
-              {saved ? '✅ Profile saved — auto-fills into forms' : 'Fill once, use everywhere'}
+              {saved ? '✅ Profile saved — synced to cloud' : 'Fill once, use everywhere'}
             </p>
           </div>
         </div>
@@ -143,8 +160,8 @@ export default function LandlordProfile({ showToast }) {
             display: 'flex', gap: '12px', marginTop: '20px',
             paddingTop: '16px', borderTop: '1px solid var(--gray-100)',
           }}>
-            <button type="submit" className="btn btn-primary">
-              <Save size={16} /> {saved ? 'Update Profile' : 'Save Profile'}
+            <button type="submit" className="btn btn-primary" disabled={saving}>
+              <Save size={16} /> {saving ? 'Saving...' : saved ? 'Update Profile' : 'Save Profile'}
             </button>
             {saved && (
               <button type="button" className="btn btn-danger" onClick={handleClear} style={{
@@ -161,11 +178,13 @@ export default function LandlordProfile({ showToast }) {
           borderRadius: '8px', border: '1px solid #bae6fd',
           fontSize: '0.82rem', color: '#0369a1',
         }}>
-          💡 <strong>How it works:</strong> Once saved, you'll see a "📋 Use Saved Details" button
-          at the top of the Agreement and Receipt forms. Click it to auto-fill your landlord details.
+          💡 <strong>How it works:</strong> Your profile is saved securely to the cloud and syncs across all your devices and browsers.
+          You'll see a "📋 Use Saved Details" button at the top of the Agreement and Receipt forms to auto-fill your landlord details.
           The <strong>Rent Due Day</strong> is used to automatically mark unpaid payments as overdue
           and is mentioned in generated rent agreements. You can still edit fields manually for any specific document.
         </div>
+        </>
+        )}
       </div>
     </div>
   );
