@@ -11,51 +11,51 @@ export default function LandingPage({ onGetStarted }) {
 
   const features = [
     {
-      icon: <Building2 size={28} />,
-      title: 'Property Management',
-      description: 'Add and manage all your rental properties in one place. Track addresses, rent amounts, deposits, and more.',
-      color: '#6366f1',
-    },
-    {
-      icon: <Users size={28} />,
-      title: 'Tenant Directory',
-      description: 'Store tenant details including Aadhaar, PAN, emergency contacts. Upload documents securely.',
-      color: '#059669',
-    },
-    {
-      icon: <CreditCard size={28} />,
-      title: 'Rent Payment Tracking',
-      description: 'Track every payment — paid, pending, or overdue. Generate bulk entries for all tenants at once.',
-      color: '#f59e0b',
-    },
-    {
       icon: <FileText size={28} />,
-      title: 'Rent Agreement Generator',
-      description: 'Generate legally formatted rental agreements with stamp duty, lock-in, and TDS clauses. Download as PDF.',
+      title: 'Rent Agreements in 30 Seconds',
+      description: 'Stop paying ₹500–₹2000 to agents for drafting. Generate legally formatted agreements with stamp duty, lock-in period, police verification & TDS clauses — ready to print as PDF.',
       color: '#8b5cf6',
     },
     {
       icon: <Receipt size={28} />,
-      title: 'HRA Rent Receipts',
-      description: 'Generate HRA-compliant rent receipts with landlord PAN, revenue stamp notice, and proper declaration.',
+      title: 'HRA Rent Receipts — Tax Ready',
+      description: 'Your tenants need receipts for HRA exemption? Generate compliant receipts with landlord PAN, revenue stamp notice, and proper declaration. Their CA will thank you.',
       color: '#ef4444',
     },
     {
-      icon: <MessageCircle size={28} />,
-      title: 'WhatsApp Reminders',
-      description: 'Send rent payment reminders to tenants directly via WhatsApp with one click. No API cost.',
-      color: '#22c55e',
+      icon: <CreditCard size={28} />,
+      title: 'Never Miss a Rent Payment',
+      description: 'See who paid, who didn\'t, and who\'s overdue — at a glance. Auto-marks payments overdue after your due date. Send WhatsApp reminders with one tap.',
+      color: '#f59e0b',
+    },
+    {
+      icon: <Users size={28} />,
+      title: 'All Tenants in One Place',
+      description: 'Store Aadhaar, PAN, lease dates, emergency contacts — no more digging through WhatsApp chats. Attach documents securely. Access from any device.',
+      color: '#059669',
+    },
+    {
+      icon: <Building2 size={28} />,
+      title: 'Multi-Property Dashboard',
+      description: 'Own 2 flats or 50? One dashboard shows rent collected, pending dues, vacant units, and maintenance issues across all properties.',
+      color: '#6366f1',
     },
     {
       icon: <Wrench size={28} />,
-      title: 'Maintenance Tracker',
-      description: 'Log maintenance requests, track status, assign priorities, and attach photos of issues.',
+      title: 'Maintenance Without the Chaos',
+      description: 'Tenants report a leaking tap? Log it, set priority, track progress, attach photos. No more forgetting complaints or losing messages.',
       color: '#0ea5e9',
     },
     {
+      icon: <MessageCircle size={28} />,
+      title: 'WhatsApp Rent Reminders',
+      description: 'One click sends a polite payment reminder to your tenant on WhatsApp. No awkward phone calls. No cost. Works with any phone.',
+      color: '#22c55e',
+    },
+    {
       icon: <Shield size={28} />,
-      title: 'India-First Compliance',
-      description: 'Built for Indian landlords — stamp duty by state, police verification clause, TDS above ₹50K, and more.',
+      title: 'Built for India, By India',
+      description: 'Stamp duty rules for all 28 states. Indian numbering (₹1,00,000). DD/MM/YYYY dates. PAN & Aadhaar fields. This isn\'t a foreign tool adapted for India — it\'s made for you.',
       color: '#ec4899',
     },
   ];
@@ -119,48 +119,56 @@ export default function LandingPage({ onGetStarted }) {
   const testimonials = [
     {
       name: 'Rajesh Sharma',
-      role: 'Property Owner, Bangalore',
-      text: 'RentEasy saved me hours every month. I used to track rents in Excel — now everything is automated. The WhatsApp reminder feature is brilliant!',
+      role: '3 Flats, Bangalore',
+      text: 'I was tracking rent in a Google Sheet and chasing tenants on WhatsApp. RentEasy shows me who hasn\'t paid in 2 seconds. The agreement generator alone saved me ₹3,000.',
       rating: 5,
     },
     {
       name: 'Priya Menon',
-      role: 'PG Owner, Chennai',
-      text: 'Managing 30 PG tenants was a nightmare. RentEasy made it simple. The rent receipt generator helps my tenants claim HRA tax benefits.',
+      role: 'PG Owner, Chennai (28 beds)',
+      text: 'My PG tenants kept asking for rent receipts during tax season. Now I generate 28 receipts in 5 minutes. They\'re happy, I\'m happy, their CA is happy.',
       rating: 5,
     },
     {
       name: 'Amit Gupta',
-      role: 'Real Estate Agent, Delhi',
-      text: 'I manage properties for 8 different owners. The agreement generator with proper legal clauses has been a game-changer. Highly recommended!',
+      role: 'NRI Landlord, Lives in Dubai',
+      text: 'I manage 4 flats in Delhi from Dubai. Before RentEasy, I\'d call my brother to check if tenants paid. Now I just open the app. The WhatsApp reminder feature is genius.',
       rating: 5,
     },
   ];
 
   const faqs = [
     {
-      q: 'Is RentEasy free to use?',
-      a: 'Yes! The Free plan lets you manage 2 properties and 3 tenants with no time limit. Upgrade to Pro or Business when you need more.',
+      q: 'Is RentEasy really free?',
+      a: 'Yes. The Free plan gives you 2 properties and 3 tenants with no time limit — not a trial. You can generate agreements, receipts, and track payments forever. Upgrade only when you need more capacity.',
     },
     {
-      q: 'Are the rent agreements legally valid?',
-      a: 'Our agreements include all standard Indian rental clauses — stamp duty, lock-in, police verification, and TDS. However, we recommend getting them notarized or registered for full legal validity.',
+      q: 'Are the rent agreements legally valid in India?',
+      a: 'Our agreements include all standard Indian rental clauses — stamp duty (state-specific), lock-in period, police verification, escalation, TDS above ₹50,000/month, and more. We recommend getting them notarized or registered at your local sub-registrar office for full legal validity.',
     },
     {
-      q: 'Can my tenants use rent receipts for HRA?',
-      a: 'Absolutely. Our receipts include landlord PAN (mandatory above ₹1 lakh/year), revenue stamp notice, and a proper declaration — fully compliant for HRA exemption.',
+      q: 'Can my tenants use these rent receipts for HRA tax exemption?',
+      a: 'Absolutely. Our receipts include landlord PAN (mandatory for rent above ₹1 lakh/year as per Section 194-IB), revenue stamp notice, proper declaration, and digital signature — fully compliant for HRA exemption under Section 10(13A).',
     },
     {
-      q: 'Is my data secure?',
-      a: 'Your data is stored securely on Supabase (powered by PostgreSQL) with row-level security. Each user can only access their own data. We never share or sell your information.',
+      q: 'Is my data safe? I\'m storing Aadhaar and PAN numbers.',
+      a: 'Your data is encrypted and stored securely on enterprise-grade infrastructure with row-level security — meaning only you can access your data. We never share, sell, or access your information. You can delete your data anytime.',
+    },
+    {
+      q: 'I\'m not tech-savvy. Is this complicated?',
+      a: 'If you can use WhatsApp, you can use RentEasy. There\'s no training needed. Add a property, add a tenant, click a button to generate documents. Most landlords set up in under 5 minutes.',
+    },
+    {
+      q: 'Can I use this from my phone?',
+      a: 'Yes! RentEasy works perfectly in your phone browser — Chrome, Safari, or any browser. No app download needed. It works on desktop too. Your data syncs across all devices.',
+    },
+    {
+      q: 'I manage properties for someone else. Can I use this?',
+      a: 'Yes — the Business plan supports up to 50 properties and 100 tenants. Real estate agents and property managers use RentEasy to manage multiple owners\' properties from one account.',
     },
     {
       q: 'Can I cancel anytime?',
-      a: 'Yes, there are no contracts. Cancel anytime from your account settings. Your data remains accessible on the Free plan.',
-    },
-    {
-      q: 'Do you support UPI payments?',
-      a: 'Yes! We use Razorpay for payments, which supports UPI, credit/debit cards, net banking, and wallets.',
+      a: 'Yes, there are no contracts or lock-in. Cancel anytime from your account. Your data remains accessible on the Free plan even after cancellation.',
     },
   ];
 
@@ -192,40 +200,49 @@ export default function LandingPage({ onGetStarted }) {
       <section className="landing-hero">
         <div className="landing-container">
           <div className="landing-hero-badge">
-            <Crown size={14} /> Built for Indian Landlords
+            <Crown size={14} /> #1 Free Tool for Indian Landlords
           </div>
           <h1 className="landing-hero-title">
-            Manage Rentals.<br />
-            <span className="landing-gradient-text">Generate Documents.</span><br />
-            Grow Effortlessly.
+            Stop Using Excel & WhatsApp<br />
+            <span className="landing-gradient-text">to Manage Your Rentals</span>
           </h1>
           <p className="landing-hero-subtitle">
-            Track properties, tenants, payments, and maintenance — all in one place.
-            Generate legally compliant rent agreements and HRA receipts in seconds.
+            Generate rent agreements, HRA receipts, track payments, and send WhatsApp reminders —
+            all from one dashboard. Built specifically for Indian landlords, PG owners & property managers.
           </p>
           <div className="landing-hero-actions">
             <button className="landing-btn landing-btn-primary landing-btn-lg" onClick={onGetStarted}>
-              Get Started Free <ArrowRight size={18} />
+              Start Free — No Credit Card <ArrowRight size={18} />
             </button>
             <a href="#features" className="landing-btn landing-btn-outline landing-btn-lg">
-              See Features
+              See How It Works
             </a>
           </div>
           <div className="landing-hero-stats">
             <div className="landing-stat">
-              <div className="landing-stat-number">100%</div>
-              <div className="landing-stat-label">Free to start</div>
+              <div className="landing-stat-number">30 sec</div>
+              <div className="landing-stat-label">To generate a rent agreement</div>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat">
               <div className="landing-stat-number">₹0</div>
-              <div className="landing-stat-label">No credit card</div>
+              <div className="landing-stat-label">Free forever plan</div>
             </div>
             <div className="landing-stat-divider" />
             <div className="landing-stat">
-              <div className="landing-stat-number">2 min</div>
-              <div className="landing-stat-label">Setup time</div>
+              <div className="landing-stat-number">100%</div>
+              <div className="landing-stat-label">HRA & tax compliant</div>
             </div>
+          </div>
+          <div className="landing-hero-trust">
+            <CheckCircle size={15} />
+            <span>No credit card required</span>
+            <span className="landing-trust-dot" />
+            <Shield size={15} />
+            <span>Your data stays private</span>
+            <span className="landing-trust-dot" />
+            <Clock size={15} />
+            <span>Setup in under 5 minutes</span>
           </div>
         </div>
       </section>
@@ -234,8 +251,8 @@ export default function LandingPage({ onGetStarted }) {
       <section id="features" className="landing-section">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Everything You Need to<br /><span className="landing-gradient-text">Manage Rentals Like a Pro</span></h2>
-            <p>Purpose-built tools for Indian landlords, PG owners, and real estate agents.</p>
+            <h2>Stop Juggling WhatsApp, Excel & Paper.<br /><span className="landing-gradient-text">One Dashboard for Everything.</span></h2>
+            <p>Every tool an Indian landlord needs — agreements, receipts, payments, reminders — in one place.</p>
           </div>
           <div className="landing-features-grid">
             {features.map((feature, i) => (
@@ -255,25 +272,26 @@ export default function LandingPage({ onGetStarted }) {
       <section className="landing-section landing-section-alt">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Get Started in<br /><span className="landing-gradient-text">3 Simple Steps</span></h2>
+            <h2>Up and Running in<br /><span className="landing-gradient-text">Under 5 Minutes</span></h2>
+            <p>No training. No setup fees. No tech skills needed.</p>
           </div>
           <div className="landing-steps">
             <div className="landing-step">
               <div className="landing-step-number">1</div>
-              <h3>Sign Up Free</h3>
-              <p>Create your account in 30 seconds. No credit card required. Start with the Free plan.</p>
+              <h3>Create Your Free Account</h3>
+              <p>Sign up with email or Google. No credit card, no phone verification. Takes 30 seconds.</p>
             </div>
             <div className="landing-step-arrow"><ChevronRight size={24} /></div>
             <div className="landing-step">
               <div className="landing-step-number">2</div>
-              <h3>Add Properties & Tenants</h3>
-              <p>Enter your property details and tenant information. Import existing data easily.</p>
+              <h3>Add Your Properties & Tenants</h3>
+              <p>Enter property address, rent amount, and tenant details (name, Aadhaar, PAN). That's it.</p>
             </div>
             <div className="landing-step-arrow"><ChevronRight size={24} /></div>
             <div className="landing-step">
               <div className="landing-step-number">3</div>
-              <h3>Track & Generate</h3>
-              <p>Track payments, send reminders, and generate agreements & receipts instantly.</p>
+              <h3>Generate, Track & Collect</h3>
+              <p>Create agreements & receipts as PDF, track who's paid, and send WhatsApp reminders to defaulters.</p>
             </div>
           </div>
         </div>
@@ -326,7 +344,8 @@ export default function LandingPage({ onGetStarted }) {
       <section id="testimonials" className="landing-section landing-section-alt">
         <div className="landing-container">
           <div className="landing-section-header">
-            <h2>Trusted by<br /><span className="landing-gradient-text">Indian Landlords</span></h2>
+            <h2>Landlords Across India<br /><span className="landing-gradient-text">Love RentEasy</span></h2>
+            <p>From single-property owners to PG managers with 50+ beds.</p>
           </div>
           <div className="landing-testimonials-grid">
             {testimonials.map((t, i) => (
@@ -352,7 +371,8 @@ export default function LandingPage({ onGetStarted }) {
       <section id="faq" className="landing-section">
         <div className="landing-container" style={{ maxWidth: 720 }}>
           <div className="landing-section-header">
-            <h2>Frequently Asked<br /><span className="landing-gradient-text">Questions</span></h2>
+            <h2>Got Questions?<br /><span className="landing-gradient-text">We've Got Answers</span></h2>
+            <p>Everything you need to know before getting started.</p>
           </div>
           <div className="landing-faq-list">
             {faqs.map((faq, i) => (
@@ -368,10 +388,10 @@ export default function LandingPage({ onGetStarted }) {
       {/* ===== CTA BANNER ===== */}
       <section className="landing-cta">
         <div className="landing-container">
-          <h2>Ready to Simplify Your Rental Management?</h2>
-          <p>Join thousands of Indian landlords who trust RentEasy. Free forever — upgrade when you're ready.</p>
+          <h2>Your Tenants Won't Wait. Neither Should You.</h2>
+          <p>Set up your rental dashboard in under 5 minutes. Free forever for up to 2 properties — no credit card, no catch.</p>
           <button className="landing-btn landing-btn-white landing-btn-lg" onClick={onGetStarted}>
-            Get Started Free <ArrowRight size={18} />
+            Create My Free Account <ArrowRight size={18} />
           </button>
         </div>
       </section>
@@ -385,7 +405,7 @@ export default function LandingPage({ onGetStarted }) {
                 <div className="logo-icon" style={{ width: 32, height: 32 }}><Building2 size={16} /></div>
                 <span className="landing-logo-text">RentEasy</span>
               </div>
-              <p>The simplest way for Indian landlords to manage rental properties, tenants, and documents.</p>
+              <p>India's simplest rental management tool — agreements, receipts, payments & reminders in one place.</p>
             </div>
             <div className="landing-footer-links">
               <h4>Product</h4>
