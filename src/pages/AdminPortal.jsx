@@ -92,7 +92,7 @@ export default function AdminPortal({ showToast }) {
         case 'add_storage':
           result = await callAdminAPI('add_storage_bonus', {
             userId: actionModal.userId,
-            bonusMB: Number(actionForm.bonusMB) || 100,
+            bonusMB: actionForm.bonusMB !== undefined && actionForm.bonusMB !== '' ? Number(actionForm.bonusMB) : 100,
           });
           break;
       }
@@ -276,7 +276,10 @@ export default function AdminPortal({ showToast }) {
                           </div>
                           <div style={{ background: 'var(--white)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--gray-100)' }}>
                             <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#16a34a' }}>{details.tenantCount}</div>
-                            <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>Tenants</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--gray-400)' }}>Active Tenants</div>
+                            {details.inactiveTenantCount > 0 && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--gray-400)', marginTop: '2px' }}>+{details.inactiveTenantCount} inactive</div>
+                            )}
                           </div>
                           <div style={{ background: 'var(--white)', padding: '12px', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--gray-100)' }}>
                             <div style={{ fontSize: '1.2rem', fontWeight: 700, color: '#d97706' }}>{details.storage?.file_count || 0}</div>
@@ -397,7 +400,7 @@ export default function AdminPortal({ showToast }) {
                   <div className="form-group">
                     <label className="form-label">Extension (days from now)</label>
                     <input className="form-input" type="number" min="0" max="365"
-                      value={actionForm.extensionDays || ''}
+                      value={actionForm.extensionDays ?? ''}
                       onChange={e => setActionForm(prev => ({ ...prev, extensionDays: e.target.value }))}
                       placeholder="30" />
                     <small style={{ color: 'var(--gray-400)' }}>Set 0 to only change the plan without extending</small>
@@ -409,7 +412,7 @@ export default function AdminPortal({ showToast }) {
                 <div className="form-group">
                   <label className="form-label">Extend by (days)</label>
                   <input className="form-input" type="number" min="1" max="365"
-                    value={actionForm.days || ''}
+                    value={actionForm.days ?? ''}
                     onChange={e => setActionForm(prev => ({ ...prev, days: e.target.value }))}
                     placeholder="15" />
                   <small style={{ color: 'var(--gray-400)' }}>Days will be added from current end date or today (whichever is later)</small>
@@ -419,11 +422,11 @@ export default function AdminPortal({ showToast }) {
               {actionModal.type === 'add_storage' && (
                 <div className="form-group">
                   <label className="form-label">Bonus Storage (MB)</label>
-                  <input className="form-input" type="number" min="10" max="10000"
-                    value={actionForm.bonusMB || ''}
+                  <input className="form-input" type="number" min="0" max="10000"
+                    value={actionForm.bonusMB ?? ''}
                     onChange={e => setActionForm(prev => ({ ...prev, bonusMB: e.target.value }))}
                     placeholder="100" />
-                  <small style={{ color: 'var(--gray-400)' }}>This sets the total bonus (not cumulative). It will be added on top of the plan limit.</small>
+                  <small style={{ color: 'var(--gray-400)' }}>Set to 0 to remove bonus. This sets the total bonus (not cumulative), added on top of the plan limit.</small>
                 </div>
               )}
             </div>

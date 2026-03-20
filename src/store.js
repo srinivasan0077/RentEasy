@@ -488,9 +488,11 @@ export async function getStorageUsageMB(userId) {
     // Try server-side RPC first (tamper-proof)
     const { data, error } = await supabase.rpc('get_storage_usage', { user_uuid: userId });
     if (!error && data) {
-      return data.used_mb || 0;
+      // RPC returns JSON — data may be parsed object or string
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return Number(parsed.used_mb) || 0;
     }
-    // Fallback: client-side calculation
+    // Fallback: client-side calculation from attachments table
     const { data: attachments, error: fetchErr } = await supabase
       .from('attachments')
       .select('file_size')
@@ -501,6 +503,38 @@ export async function getStorageUsageMB(userId) {
   } catch {
     return 0;
   }
+}
+
+/**
+ * Get full storage info including server-side limits (with admin bonuses)
+ * Returns { used_mb, limit_mb, bonus_mb, file_count }
+ */
+export async function getStorageInfo(userId) {
+  if (!isSupabaseConfigured() || !userId) return { used_mb: 0, limit_mb: 0, bonus_mb: 0, file_count: 0 };
+  try {
+    const { data, error } = await supabase.rpc('get_storage_usage', { user_uuid: userId });
+    if (!error && data) {
+      const parsed = typeof data === 'string' ? JSON.parse(data) : data;
+      return {
+        used_mb: Number(parsed.used_mb) || 0,
+        limit_mb: Number(parsed.limit_mb) || 0,
+        bonus_mb: Number(parsed.bonus_mb) || 0,
+        file_count: Number(parsed.file_count) || 0,
+      };
+    }
+  } catch { /* fall through */ }
+  // Fallback: client-side usage, no bonus info available
+  const { data: attachments } = await supabase
+    .from('attachments')
+    .select('file_size')
+    .eq('user_id', userId);
+  const totalBytes = (attachments || []).reduce((sum, a) => sum + (Number(a.file_size) || 0), 0);
+  return {
+    used_mb: Math.round((totalBytes / (1024 * 1024)) * 100) / 100,
+    limit_mb: 0, // unknown without RPC
+    bonus_mb: 0,
+    file_count: (attachments || []).length,
+  };
 }
 
 /**

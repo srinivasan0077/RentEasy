@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { Building2, Users, IndianRupee, AlertTriangle, TrendingUp, ArrowRight, Crown, HardDrive, FileText, Receipt, Gauge, Mail, X, Calendar, CreditCard, StickyNote, ImageIcon, Eye } from 'lucide-react';
-import { getProperties, getTenants, getPayments, getMaintenanceRequests, getAgreements, getReceipts } from '../store';
+import { getProperties, getTenants, getPayments, getMaintenanceRequests, getAgreements, getReceipts, getStorageInfo } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { formatLimit } from '../lib/planLimits';
 import { DashboardSkeleton } from '../components/SkeletonLoader';
 
 export default function Dashboard({ onNavigate, refreshKey }) {
-  const { user, currentPlan, getPlanLimits, storageUsedMB, getDaysLeft, license } = useAuth();
+  const { user, currentPlan, getPlanLimits, getDaysLeft, license, refreshStorageUsage } = useAuth();
   const userId = user?.id;
   const [properties, setProperties] = useState([]);
   const [tenants, setTenants] = useState([]);
@@ -14,18 +14,21 @@ export default function Dashboard({ onNavigate, refreshKey }) {
   const [maintenance, setMaintenance] = useState([]);
   const [agreements, setAgreements] = useState([]);
   const [receipts, setReceipts] = useState([]);
+  const [localStorageMB, setLocalStorageMB] = useState(0);
+  const [storageLimitMB, setStorageLimitMB] = useState(0);
   const [loading, setLoading] = useState(true);
   const [viewPayment, setViewPayment] = useState(null);
 
   useEffect(() => {
     async function load() {
-      const [p, t, pay, m, ag, rc] = await Promise.all([
+      const [p, t, pay, m, ag, rc, storageInfo] = await Promise.all([
         getProperties(userId),
         getTenants(userId),
         getPayments(userId),
         getMaintenanceRequests(userId),
         getAgreements(userId),
         getReceipts(userId),
+        getStorageInfo(userId),
       ]);
       setProperties(p);
       setTenants(t);
@@ -33,9 +36,14 @@ export default function Dashboard({ onNavigate, refreshKey }) {
       setMaintenance(m);
       setAgreements(ag);
       setReceipts(rc);
+      setLocalStorageMB(storageInfo.used_mb);
+      // Use server-side limit (includes admin bonuses), fallback to plan default
+      if (storageInfo.limit_mb > 0) setStorageLimitMB(storageInfo.limit_mb);
       setLoading(false);
     }
     load();
+    // Also refresh context-level storage so other pages see updated value
+    refreshStorageUsage();
   }, [userId, refreshKey]);
 
   const totalRent = tenants.reduce((sum, t) => sum + Number(t.rent || 0), 0);
@@ -110,7 +118,7 @@ export default function Dashboard({ onNavigate, refreshKey }) {
           { label: 'Active Tenants', used: tenants.length, limit: limits.tenants, icon: <Users size={16} />, color: '#0ea5e9' },
           { label: 'Agreements', sub: 'this month', used: agreementsThisMonth, limit: limits.agreements, icon: <FileText size={16} />, color: '#8b5cf6' },
           { label: 'Receipts', sub: 'this month', used: receiptsThisMonth, limit: limits.receipts, icon: <Receipt size={16} />, color: '#f59e0b' },
-          { label: 'Storage', used: storageUsedMB, limit: limits.attachmentsMB, icon: <HardDrive size={16} />, color: '#10b981', unit: 'MB' },
+          { label: 'Storage', used: localStorageMB, limit: storageLimitMB || limits.attachmentsMB, icon: <HardDrive size={16} />, color: '#10b981', unit: 'MB' },
         ];
 
         const hasAnyNearLimit = usageItems.some(item => {

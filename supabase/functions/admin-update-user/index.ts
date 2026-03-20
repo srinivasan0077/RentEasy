@@ -119,18 +119,20 @@ serve(async (req) => {
       // ============ ADD BONUS STORAGE ============
       case 'add_storage_bonus': {
         const { userId, bonusMB } = params;
-        if (!userId || !bonusMB) throw new Error('userId and bonusMB are required');
+        if (!userId || bonusMB === undefined || bonusMB === null) throw new Error('userId and bonusMB are required');
 
-        // Store bonus in a profile column (we'll add this column)
+        const bonusValue = Number(bonusMB);
+
+        // Store bonus in a profile column
         const { error } = await supabaseAdmin
           .from('profiles')
-          .update({ storage_bonus_mb: bonusMB })
+          .update({ storage_bonus_mb: bonusValue })
           .eq('id', userId);
 
         if (error) throw error;
 
         return new Response(
-          JSON.stringify({ success: true, message: `Added ${bonusMB}MB bonus storage` }),
+          JSON.stringify({ success: true, message: bonusValue === 0 ? 'Bonus storage removed' : `Set ${bonusValue}MB bonus storage` }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
@@ -140,11 +142,12 @@ serve(async (req) => {
         const { userId } = params;
         if (!userId) throw new Error('userId is required');
 
-        const [profileRes, storageRes, propsRes, tenantsRes, subsRes] = await Promise.all([
+        const [profileRes, storageRes, propsRes, tenantsRes, allTenantsRes, subsRes] = await Promise.all([
           supabaseAdmin.from('profiles').select('*').eq('id', userId).single(),
           supabaseAdmin.rpc('get_storage_usage', { user_uuid: userId }),
           supabaseAdmin.from('properties').select('id').eq('user_id', userId),
-          supabaseAdmin.from('tenants').select('id').eq('user_id', userId),
+          supabaseAdmin.from('tenants').select('id').eq('user_id', userId).eq('is_active', true),
+          supabaseAdmin.from('tenants').select('id').eq('user_id', userId).eq('is_active', false),
           supabaseAdmin.from('subscription_history').select('*').eq('user_id', userId).order('created_at', { ascending: false }).limit(5),
         ]);
 
@@ -154,6 +157,7 @@ serve(async (req) => {
             storage: storageRes.data,
             propertyCount: propsRes.data?.length || 0,
             tenantCount: tenantsRes.data?.length || 0,
+            inactiveTenantCount: allTenantsRes.data?.length || 0,
             recentSubscriptions: subsRes.data || [],
           }),
           { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -163,7 +167,7 @@ serve(async (req) => {
       // ============ EXTEND TRIAL ============
       case 'extend_trial': {
         const { userId, days } = params;
-        if (!userId || !days) throw new Error('userId and days are required');
+        if (!userId || days === undefined || days === null || Number(days) <= 0) throw new Error('userId and days (> 0) are required');
 
         const { data: profile } = await supabaseAdmin
           .from('profiles')

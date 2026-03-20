@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { PLAN_LIMITS, checkLimit as checkPlanLimit, getPlanLimits as getPlanLimitsFromConfig } from '../lib/planLimits';
-import { getStorageUsageMB } from '../store';
+import { getStorageUsageMB, getStorageInfo } from '../store';
 
 const AuthContext = createContext({});
 
@@ -26,6 +26,7 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [isLocal, setIsLocal] = useState(false);
   const [storageUsedMB, setStorageUsedMB] = useState(0);
+  const [storageLimitMB, setStorageLimitMB] = useState(0); // server-side limit (includes admin bonuses)
 
   const fetchProfile = useCallback(async (userId) => {
     try {
@@ -80,9 +81,10 @@ export function AuthProvider({ children }) {
     // Check license, falls back to defaults internally
     await checkLicense(sessionUser.id);
 
-    // Fetch storage usage
-    const usage = await getStorageUsageMB(sessionUser.id);
-    setStorageUsedMB(usage);
+    // Fetch storage usage and server-side limit (includes admin bonuses)
+    const storageInfo = await getStorageInfo(sessionUser.id);
+    setStorageUsedMB(storageInfo.used_mb);
+    if (storageInfo.limit_mb > 0) setStorageLimitMB(storageInfo.limit_mb);
   }, [fetchProfile, checkLicense]);
 
   useEffect(() => {
@@ -219,17 +221,31 @@ export function AuthProvider({ children }) {
    * @returns {{ allowed: boolean, limit: number, remaining: number, message: string }}
    */
   const checkLimit = (feature, currentCount) => {
-    // For storage, auto-inject actual usage if caller passes 0 (legacy compat)
-    if (feature === 'attachmentsMB' && currentCount === 0) {
-      return checkPlanLimit(currentPlan, feature, storageUsedMB);
+    // For storage, use server-side limit (includes admin bonuses) and auto-inject actual usage
+    if (feature === 'attachmentsMB') {
+      const usage = currentCount === 0 ? storageUsedMB : currentCount;
+      if (storageLimitMB > 0) {
+        // Use server-side limit instead of hardcoded plan limit
+        const allowed = usage < storageLimitMB;
+        const remaining = Math.max(0, storageLimitMB - usage);
+        const planLabel = getPlanLimitsFromConfig(currentPlan).label;
+        return {
+          allowed,
+          limit: storageLimitMB,
+          remaining,
+          message: allowed ? '' : `You've reached your storage limit of ${storageLimitMB} MB. Upgrade or contact support for more.`,
+        };
+      }
+      return checkPlanLimit(currentPlan, feature, usage);
     }
     return checkPlanLimit(currentPlan, feature, currentCount);
   };
 
   const refreshStorageUsage = async () => {
     if (!user?.id || isLocal) return;
-    const usage = await getStorageUsageMB(user.id);
-    setStorageUsedMB(usage);
+    const storageInfo = await getStorageInfo(user.id);
+    setStorageUsedMB(storageInfo.used_mb);
+    if (storageInfo.limit_mb > 0) setStorageLimitMB(storageInfo.limit_mb);
   };
 
   const refreshLicense = async () => {
@@ -246,6 +262,7 @@ export function AuthProvider({ children }) {
     isLocal,
     currentPlan,
     storageUsedMB,
+    storageLimitMB,
     signUp,
     signIn,
     signInWithOTP,
